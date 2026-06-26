@@ -1,5 +1,5 @@
-"""Tests for the M1 scaffold: package import, version, and the placeholder
-stdin file/hunk counter."""
+"""Tests for the CLI: package import, version, and the stdin file/hunk counter
+(now backed by the real M2 parser via ``count_diff``)."""
 
 from __future__ import annotations
 

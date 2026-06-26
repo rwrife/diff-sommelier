@@ -1,0 +1,9 @@
+diff --git a/newmod/thing.py b/newmod/thing.py
+new file mode 100644
+index 0000000..abcd123
+--- /dev/null
++++ b/newmod/thing.py
+@@ -0,0 +1,3 @@
++def thing():
++    return 42
++
