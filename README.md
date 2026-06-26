@@ -12,7 +12,16 @@ The AI-agent era means humans now review far more machine-generated code than th
 
 ## Status
 
-🚧 Early. See [`PLAN.md`](./PLAN.md) for the roadmap and milestones (M1–M6).
+🚧 Early. **M1 (scaffold) is done**: installable CLI, `--version`, and a stdin
+file/hunk counter. The real risk scoring lands in later milestones — see
+[`PLAN.md`](./PLAN.md) for the roadmap (M1–M6).
+
+```bash
+# Install (editable) and try it
+pip install -e .
+diff-sommelier --version
+git diff | diff-sommelier          # -> "Parsed N files, M hunks."
+```
 
 ## Planned usage (v0.1)
 
