@@ -12,18 +12,58 @@ The AI-agent era means humans now review far more machine-generated code than th
 
 ## Status
 
-🚧 Early. **M1 (scaffold)** and **M2 (typed diff parser)** are done: an
-installable CLI with `--version`, a stdin file/hunk counter, and a robust
-unified-diff parser (`diff_sommelier.parser`) that turns any diff into typed
-`File`/`Hunk` objects with stable content-hash hunk IDs. The real risk scoring
-lands in M3 — see [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6).
+🚧 Early, but the engine is live. **M1–M3 are done:** an installable CLI, a
+robust unified-diff parser (`diff_sommelier.parser`) that turns any diff into
+typed `File`/`Hunk` objects with stable content-hash hunk IDs, and a
+transparent **heuristic scoring engine** (`diff_sommelier.rules` +
+`diff_sommelier.scorer`) that scores every hunk **0–100** with explainable
+signals. The rich "tasting menu" view and the budget/CI gate land in M4+ — see
+[`PLAN.md`](./PLAN.md) for the roadmap (M1–M6).
 
 ```bash
 # Install (editable) and try it
 pip install -e .
 diff-sommelier --version
 git diff | diff-sommelier          # -> "Parsed N files, M hunks."
+git diff | diff-sommelier --json   # -> scored, explained hunks (most risky first)
 ```
+
+### Scoring (`--json`)
+
+`--json` emits a JSON array of hunks ordered most-risky-first. Every point on a
+score is traceable to a named rule and a one-line reason — there is no LLM and
+no magic:
+
+```jsonc
+[
+  {
+    "id": "3206ecc81fc0",
+    "file": "auth/login.py",
+    "old_start": 1, "new_start": 1,
+    "added": 4, "removed": 1,
+    "score": 92,
+    "raw": 48,
+    "signals": [
+      { "rule": "danger",  "points": 18, "reason": "adds a hardcoded secret-looking literal" },
+      { "rule": "danger",  "points": 16, "reason": "adds dynamic eval/exec" },
+      { "rule": "surface", "points": 14, "reason": "touches authentication/session code" }
+    ]
+  }
+]
+```
+
+The v0.1 rule pack:
+
+- **size** — large hunks / high churn are simply more to review.
+- **surface** — touches auth/crypto, DB migrations, CI workflows, Dockerfiles,
+  dependency manifests/lockfiles, or env/credential config.
+- **danger** — deletions, dynamic `eval`/`exec`, shell/subprocess calls,
+  hardcoded secrets & private keys, disabled TLS verification, loosened CORS,
+  permission/privilege changes, and raw SQL.
+
+Add a rule by dropping a `Hunk -> [Signal]` function into
+`diff_sommelier/rules/` and registering it — that's the extension surface for
+the rest of the backlog.
 
 The parser is also usable directly:
 
