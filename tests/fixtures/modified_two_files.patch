@@ -1,0 +1,23 @@
+diff --git a/src/app.py b/src/app.py
+index 1111111..2222222 100644
+--- a/src/app.py
++++ b/src/app.py
+@@ -1,5 +1,6 @@
+ import os
++import sys
+ 
+ def main():
+-    return 1
++    return 0
+@@ -20,3 +21,4 @@ def helper():
+     x = 1
+     y = 2
++    z = 3
+     return x
+diff --git a/README.md b/README.md
+index 3333333..4444444 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,2 @@
+ # Title
++Some new line.

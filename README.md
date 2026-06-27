@@ -12,15 +12,27 @@ The AI-agent era means humans now review far more machine-generated code than th
 
 ## Status
 
-🚧 Early. **M1 (scaffold) is done**: installable CLI, `--version`, and a stdin
-file/hunk counter. The real risk scoring lands in later milestones — see
-[`PLAN.md`](./PLAN.md) for the roadmap (M1–M6).
+🚧 Early. **M1 (scaffold)** and **M2 (typed diff parser)** are done: an
+installable CLI with `--version`, a stdin file/hunk counter, and a robust
+unified-diff parser (`diff_sommelier.parser`) that turns any diff into typed
+`File`/`Hunk` objects with stable content-hash hunk IDs. The real risk scoring
+lands in M3 — see [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6).
 
 ```bash
 # Install (editable) and try it
 pip install -e .
 diff-sommelier --version
 git diff | diff-sommelier          # -> "Parsed N files, M hunks."
+```
+
+The parser is also usable directly:
+
+```python
+from diff_sommelier import parse_diff
+
+diff = parse_diff(open("changes.patch").read())
+for hunk in diff.hunks:
+    print(hunk.id, hunk.file_path, f"+{hunk.added}/-{hunk.removed}", hunk.header)
 ```
 
 ## Planned usage (v0.1)

@@ -1,0 +1,11 @@
+diff --git a/templates/base.html b/templates/copy.html
+similarity index 90%
+copy from templates/base.html
+copy to templates/copy.html
+index 7777777..8888888 100644
+--- a/templates/base.html
++++ b/templates/copy.html
+@@ -1,2 +1,2 @@
+ <html>
+-<body>old</body>
++<body>copied</body>
