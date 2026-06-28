@@ -12,20 +12,45 @@ The AI-agent era means humans now review far more machine-generated code than th
 
 ## Status
 
-🚧 Early, but the engine is live. **M1–M3 are done:** an installable CLI, a
+🚧 Early, but the engine is live. **M1–M4 are done:** an installable CLI, a
 robust unified-diff parser (`diff_sommelier.parser`) that turns any diff into
-typed `File`/`Hunk` objects with stable content-hash hunk IDs, and a
-transparent **heuristic scoring engine** (`diff_sommelier.rules` +
-`diff_sommelier.scorer`) that scores every hunk **0–100** with explainable
-signals. The rich "tasting menu" view and the budget/CI gate land in M4+ — see
-[`PLAN.md`](./PLAN.md) for the roadmap (M1–M6).
+typed `File`/`Hunk` objects with stable content-hash hunk IDs, a transparent
+**heuristic scoring engine** (`diff_sommelier.rules` + `diff_sommelier.scorer`)
+that scores every hunk **0–100** with explainable signals, and the human
+**tasting menu** — a ranked, colour-coded terminal view (`diff_sommelier.render`).
+The attention budget and CI gate land in M5+ — see [`PLAN.md`](./PLAN.md) for the
+roadmap (M1–M6).
 
 ```bash
 # Install (editable) and try it
 pip install -e .
 diff-sommelier --version
-git diff | diff-sommelier          # -> "Parsed N files, M hunks."
-git diff | diff-sommelier --json   # -> scored, explained hunks (most risky first)
+git diff | diff-sommelier          # -> ranked "tasting menu" (most risky first)
+git diff | diff-sommelier --json   # -> scored, explained hunks as JSON
+```
+
+### The tasting menu (default)
+
+Pipe any unified diff in and `diff-sommelier` prints a ranked menu: each hunk
+gets a risk **tier** (`SAVR` skim-safe · `SIP` read it · `GULP` read this
+first), a 0–100 score with a bar, its `file:line`, and the one-line **why**.
+It's colour-coded in a terminal and degrades to clean plain text when piped or
+with `--no-color`.
+
+```text
+🍷 diff-sommelier — 3 hunks across 3 files · top risk 92
+
+   #  TIER  SCR  RISK                    WHY
+────────────────────────────────────────────────────────────────────────────
+   1  GULP   92  [##################  ]  auth/login.py:1  adds a hardcoded
+                                         secret-looking literal (+18); adds
+                                         dynamic eval/exec (+16); touches
+                                         authentication/session code (+14)
+   2  SIP    41  [########            ]  .github/workflows/ci.yml:1  touches
+                                         CI workflow (+10)
+   3  SAVR    0  [                    ]  README.md:1  (no notable signals)
+
+Tiers: GULP (read first, ≥60) · SIP (read, ≥25) · SAVR (skim-safe, <25).
 ```
 
 ### Scoring (`--json`)
@@ -75,21 +100,22 @@ for hunk in diff.hunks:
     print(hunk.id, hunk.file_path, f"+{hunk.added}/-{hunk.removed}", hunk.header)
 ```
 
-## Planned usage (v0.1)
+## Planned usage (M5–M6)
+
+The menu works on any diff today; these ergonomics are still on the roadmap:
 
 ```bash
-# From a PR
-gh pr diff 123 | diff-sommelier
-
-# From git
+# Direct git / PR ingestion (M6) instead of piping
 diff-sommelier --range main..HEAD
 diff-sommelier --staged
 
-# From a file, with a time budget and a CI gate
-diff-sommelier -f changes.patch --budget 5m --fail-over 80 --json
+# A time/size budget cut line + a CI gate (M5)
+diff-sommelier -f changes.patch --budget 5m --fail-over 80
 ```
 
-Output: a ranked "tasting menu" of hunks, most-risky-first, each with a 0–100 score, a one-line **why**, and its `file:line` — plus a cut line showing what to review vs. skim.
+The budget adds a cut line to the menu (review above it, skim below), and
+`--fail-over <score>` makes CI exit non-zero when a hunk no one may have read
+is scarier than the threshold.
 
 ## Tech
 

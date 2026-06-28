@@ -1,5 +1,6 @@
-"""Tests for the CLI: package import, version, and the stdin file/hunk counter
-(now backed by the real M2 parser via ``count_diff``)."""
+"""Tests for the CLI: package import, version, the stdin file/hunk counter
+(``count_diff``, still backed by the real M2 parser), and the M4 output modes
+(the default human tasting menu and ``--json``)."""
 
 from __future__ import annotations
 
@@ -117,14 +118,41 @@ def test_json_flag_emits_scored_hunks() -> None:
     assert any("eval/exec" in s["reason"] for s in hunk["signals"])
 
 
-def test_default_summary_still_counts() -> None:
-    """Without --json the CLI keeps its file/hunk count summary."""
+def test_default_prints_the_human_tasting_menu() -> None:
+    """Without --json the CLI prints the ranked tasting menu (M4).
+
+    stdout here is a pipe (captured), so the renderer auto-selects the
+    deterministic plain-text path: no ANSI escapes, but the menu skeleton
+    (summary header, ranked row, tier, why, legend) is present.
+    """
     result = _run_cli(RISKY_DIFF)
     assert result.returncode == 0
-    assert "Parsed 1 file, 1 hunk." in result.stdout
+    out = result.stdout
+    assert "\x1b[" not in out  # piped -> plain, no colour
+    assert "diff-sommelier —" in out
+    assert "1 hunk across 1 file" in out
+    assert "auth/login.py:1" in out
+    assert "GULP" in out
+    assert "eval/exec" in out
+    assert "most-risky-first" in out
+
+
+def test_no_color_flag_forces_plain_text() -> None:
+    """--no-color yields plain text with no ANSI even if colour were possible."""
+    result = _run_cli(RISKY_DIFF, "--no-color")
+    assert result.returncode == 0
+    assert "\x1b[" not in result.stdout
+    assert "diff-sommelier —" in result.stdout
 
 
 def test_json_empty_input_is_empty_array() -> None:
     result = _run_cli("", "--json")
     assert result.returncode == 0
     assert json.loads(result.stdout) == []
+
+
+def test_default_empty_input_is_friendly() -> None:
+    """An empty piped diff still prints a (friendly) menu, exit 0."""
+    result = _run_cli("")
+    assert result.returncode == 0
+    assert "0 hunks" in result.stdout
