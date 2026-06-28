@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 
@@ -76,3 +77,54 @@ PLAIN_DIFF_U = """\
 def test_count_diff_plain_unified_no_git_header() -> None:
     counts = count_diff(PLAIN_DIFF_U.splitlines(keepends=True))
     assert counts == DiffCounts(files=1, hunks=1)
+
+
+RISKY_DIFF = "\n".join(
+    [
+        "diff --git a/auth/login.py b/auth/login.py",
+        "--- a/auth/login.py",
+        "+++ b/auth/login.py",
+        "@@ -1,2 +1,3 @@",
+        " def login(u, p):",
+        "-    return ok(u, p)",
+        "+    if eval(u):",
+        "+        return True",
+        "",
+    ]
+)
+
+
+def _run_cli(stdin: str, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "diff_sommelier", *args],
+        input=stdin,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_json_flag_emits_scored_hunks() -> None:
+    """`--json` returns a JSON array of scored, explained hunks."""
+    result = _run_cli(RISKY_DIFF, "--json")
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert isinstance(payload, list)
+    assert len(payload) == 1
+    hunk = payload[0]
+    assert hunk["file"] == "auth/login.py"
+    assert hunk["score"] > 0
+    assert any(s["rule"] == "danger" for s in hunk["signals"])
+    assert any("eval/exec" in s["reason"] for s in hunk["signals"])
+
+
+def test_default_summary_still_counts() -> None:
+    """Without --json the CLI keeps its file/hunk count summary."""
+    result = _run_cli(RISKY_DIFF)
+    assert result.returncode == 0
+    assert "Parsed 1 file, 1 hunk." in result.stdout
+
+
+def test_json_empty_input_is_empty_array() -> None:
+    result = _run_cli("", "--json")
+    assert result.returncode == 0
+    assert json.loads(result.stdout) == []
