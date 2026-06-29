@@ -20,6 +20,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from diff_sommelier.budget import BudgetResult, format_duration
 from diff_sommelier.render.text import BAR_WIDTH, _location, _summary, _why
 from diff_sommelier.render.tiers import GULP_AT, SIP_AT, tier_for
 from diff_sommelier.scorer import ScoredHunk
@@ -36,12 +37,29 @@ def _bar_text(score: int, style: str) -> Text:
     return bar
 
 
-def render_rich(scored: Sequence[ScoredHunk], *, width: int | None = None) -> str:
+def _budget_spec(result: BudgetResult) -> str:
+    """Short budget descriptor for the cut-line row."""
+    if result.budget.is_count:
+        return f"budget {result.cut} of {result.total} hunks"
+    return (
+        f"budget {format_duration(result.budget.seconds or 0.0)}"
+        f" · ≈{format_duration(result.spent_seconds)} above"
+    )
+
+
+def render_rich(
+    scored: Sequence[ScoredHunk],
+    *,
+    width: int | None = None,
+    budget: BudgetResult | None = None,
+) -> str:
     """Render the ranked tasting menu with rich and return it as a string.
 
     The output is captured to a string (rather than printed) so the CLI owns
     I/O and the renderer stays testable. ``width`` pins the console width when
-    provided, which also makes the captured output reproducible.
+    provided, which also makes the captured output reproducible. When
+    ``budget`` is supplied (the M5 ``--budget`` cut), a coloured cut-line row
+    is inserted after the last hunk that fits the budget.
     """
     rows = list(scored)
     console = Console(
@@ -76,6 +94,8 @@ def render_rich(scored: Sequence[ScoredHunk], *, width: int | None = None) -> st
     table.add_column("RISK", no_wrap=True)
     table.add_column("WHY", overflow="fold")
 
+    cut_after = budget.cut if (budget is not None and 0 < budget.cut < len(rows)) else None
+
     for i, s in enumerate(rows, start=1):
         tier = tier_for(s.score)
         why = Text()
@@ -89,6 +109,19 @@ def render_rich(scored: Sequence[ScoredHunk], *, width: int | None = None) -> st
             _bar_text(s.score, tier.style),
             why,
         )
+        if cut_after is not None and i == cut_after:
+            label = Text(
+                f"review {budget.reviewed} above · skim {budget.skimmed} below · "
+                f"{_budget_spec(budget)}",
+                style="cyan",
+            )
+            table.add_row(
+                Text("──", style="bold cyan"),
+                Text("CUT", style="bold cyan"),
+                Text("───", style="cyan"),
+                Text("─" * BAR_WIDTH, style="cyan"),
+                label,
+            )
 
     legend = (
         f"Tiers: [bold red]GULP[/bold red] (read first, ≥{GULP_AT}) · "

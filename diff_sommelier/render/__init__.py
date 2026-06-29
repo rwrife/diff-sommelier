@@ -39,21 +39,23 @@ def render_json(scored, *, indent: int | None = 2) -> str:
     return _impl(scored, indent=indent)
 
 
-def render_human(scored, *, color: bool = True, width: int | None = None) -> str:
+def render_human(scored, *, color: bool = True, width: int | None = None, budget=None) -> str:
     """Render the human "tasting menu".
 
     Uses the :mod:`rich` renderer when ``color`` is requested and ``rich`` is
     importable; otherwise falls back to the deterministic plain-text renderer.
     Returning a string (rather than printing) keeps rendering testable and lets
-    the CLI own all the I/O.
+    the CLI own all the I/O. ``budget`` (a
+    :class:`~diff_sommelier.budget.BudgetResult`), when given, draws the M5 cut
+    line between "review this" and "skim this".
     """
     if color:
         try:
             from diff_sommelier.render.rich import render_rich
 
-            return render_rich(scored, width=width)
+            return render_rich(scored, width=width, budget=budget)
         except ImportError:
             pass
     from diff_sommelier.render.text import render_text
 
-    return render_text(scored, width=width)
+    return render_text(scored, width=width, budget=budget)
