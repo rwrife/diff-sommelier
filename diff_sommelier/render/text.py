@@ -26,6 +26,7 @@ from __future__ import annotations
 import textwrap
 from collections.abc import Sequence
 
+from diff_sommelier.budget import BudgetResult, format_duration
 from diff_sommelier.render.tiers import GULP_AT, SIP_AT, tier_for
 from diff_sommelier.scorer import ScoredHunk
 
@@ -73,12 +74,34 @@ def _summary(scored: Sequence[ScoredHunk]) -> str:
     return f"diff-sommelier — {n_hunks} {hunk_word} across {n_files} {file_word} · top risk {top}"
 
 
-def render_text(scored: Sequence[ScoredHunk], *, width: int | None = None) -> str:
+def _cut_label(result: BudgetResult, line_width: int) -> str:
+    """The dashed cut-line row: review above, skim below, with the budget cost."""
+    if result.budget.is_count:
+        spec = f"budget {result.cut} of {result.total} hunks"
+    else:
+        spec = (
+            f"budget {format_duration(result.budget.seconds or 0.0)}"
+            f" · ≈{format_duration(result.spent_seconds)} above"
+        )
+    text = f"─ cut: review {result.reviewed} above · skim {result.skimmed} below · {spec} "
+    pad = max(0, line_width - len(text))
+    return text + "─" * pad
+
+
+def render_text(
+    scored: Sequence[ScoredHunk],
+    *,
+    width: int | None = None,
+    budget: BudgetResult | None = None,
+) -> str:
     """Render the ranked plain-text tasting menu for ``scored`` hunks.
 
     ``scored`` is expected most-risky-first (as :func:`score_diff` returns).
     The output is newline-joined and ends without a trailing newline so the
-    caller controls final spacing.
+    caller controls final spacing. When ``budget`` is supplied (the M5
+    ``--budget`` cut), a dashed cut-line row is inserted after the last hunk
+    that fits the budget: rows above it are *review this*, rows below are
+    *skim this*.
     """
     total_width = DEFAULT_WIDTH if width is None else max(40, width)
 
@@ -105,7 +128,12 @@ def render_text(scored: Sequence[ScoredHunk], *, width: int | None = None) -> st
         f"{'RISK':<{bracketed_bar_w}}  WHY"
     )
     lines.append(header)
-    lines.append("─" * min(120, gutter_w + why_width))
+    rule_width = min(120, gutter_w + why_width)
+    lines.append("─" * rule_width)
+
+    # The cut index after which we insert the budget line (None == no cut, or a
+    # cut at/after the end == nothing skimmed, so no line is drawn).
+    cut_after = budget.cut if (budget is not None and 0 < budget.cut < len(rows)) else None
 
     for i, s in enumerate(rows, start=1):
         tier = tier_for(s.score)
@@ -122,6 +150,8 @@ def render_text(scored: Sequence[ScoredHunk], *, width: int | None = None) -> st
         lines.append(gutter + wrapped[0])
         cont_indent = " " * gutter_w
         lines.extend(cont_indent + part for part in wrapped[1:])
+        if cut_after is not None and i == cut_after:
+            lines.append(_cut_label(budget, rule_width))
 
     lines.append("")
     lines.append(
