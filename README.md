@@ -12,21 +12,25 @@ The AI-agent era means humans now review far more machine-generated code than th
 
 ## Status
 
-🚧 Early, but the engine is live. **M1–M5 are done:** an installable CLI, a
-robust unified-diff parser (`diff_sommelier.parser`) that turns any diff into
-typed `File`/`Hunk` objects with stable content-hash hunk IDs, a transparent
-**heuristic scoring engine** (`diff_sommelier.rules` + `diff_sommelier.scorer`)
-that scores every hunk **0–100** with explainable signals, the human
-**tasting menu** — a ranked, colour-coded terminal view (`diff_sommelier.render`)
-— and the **attention budget + CI gate** (`diff_sommelier.budget`): a `--budget`
-cut line and a `--fail-over` exit code. Git/PR ingestion and a config file land
-in M6 — see [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6).
+🚧 Early, but the whole v0.1 pipeline is live. **M1–M6 are done:** an
+installable CLI, a robust unified-diff parser (`diff_sommelier.parser`) that
+turns any diff into typed `File`/`Hunk` objects with stable content-hash hunk
+IDs, a transparent **heuristic scoring engine** (`diff_sommelier.rules` +
+`diff_sommelier.scorer`) that scores every hunk **0–100** with explainable
+signals, the human **tasting menu** — a ranked, colour-coded terminal view
+(`diff_sommelier.render`) — the **attention budget + CI gate**
+(`diff_sommelier.budget`): a `--budget` cut line and a `--fail-over` exit code,
+and **git/PR ergonomics**: `--staged`, `--range A..B`, clean `gh pr diff`
+ingestion, and a `.sommelier.toml` for custom rule weights and surface paths.
+See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and v0.2+ backlog.
 
 ```bash
 # Install (editable) and try it
 pip install -e .
 diff-sommelier --version
 git diff | diff-sommelier              # -> ranked "tasting menu" (most risky first)
+diff-sommelier --staged                # -> the same, straight from the git index
+diff-sommelier --range main..HEAD      # -> what a PR added vs. main
 git diff | diff-sommelier --budget 5m  # -> menu with a "review above / skim below" cut
 git diff | diff-sommelier --json       # -> scored, explained hunks as JSON
 ```
@@ -93,7 +97,7 @@ git diff origin/main... | diff-sommelier --json --fail-over 80 > review.json
 
 The reading-time model lives in `diff_sommelier.budget.TimeModel`
 (`seconds_per_changed_line`, `per_hunk_overhead_s`) and is exposed on the API
-today; a `.sommelier.toml` to tune it from the CLI arrives in M6.
+today.
 
 ### Scoring (`--json`)
 
@@ -142,19 +146,58 @@ for hunk in diff.hunks:
     print(hunk.id, hunk.file_path, f"+{hunk.added}/-{hunk.removed}", hunk.header)
 ```
 
-## Planned usage (M6)
+## Real repos & PRs
 
-The menu, budget, and CI gate work on any piped diff today; these ingestion
-ergonomics are still on the roadmap:
+Three ways to feed `diff-sommelier` a diff — all produce the same menu, budget,
+JSON, and CI gate:
 
 ```bash
-# Direct git / PR ingestion (M6) instead of piping
-diff-sommelier --range main..HEAD
+# 1. Pipe anything on stdin (git, a .patch file, or a PR):
+git diff | diff-sommelier
+diff-sommelier < changes.patch
+gh pr diff 123 | diff-sommelier            # review a GitHub PR by number
+
+# 2. The git index (what you've staged):
 diff-sommelier --staged
 
-# Tune rule weights and the reading-time model from a config file (M6)
-diff-sommelier -f changes.patch --budget 5m --fail-over 80   # works today via stdin
+# 3. A git range (what a branch/PR adds):
+diff-sommelier --range main..HEAD
+diff-sommelier --range origin/main...      # the merge-base form `git diff` understands
 ```
+
+`--staged` and `--range` shell out to `git` for you (no piping needed) and run
+in the current repo. They're mutually exclusive; with neither, the diff is read
+from stdin.
+
+## Config (`.sommelier.toml`)
+
+Drop a `.sommelier.toml` at your repo root to tune scoring for your codebase.
+`diff-sommelier` discovers it by walking up from the working directory; pass
+`--config PATH` to point at a specific file, or `--no-config` to ignore it.
+
+```toml
+# Re-weight a rule's influence. 1.0 = default, 0 mutes it, 2.0 doubles it.
+# Reasons are unchanged — only the points (and the 0–100 score) move.
+[weights]
+size    = 0.5    # we don't care much about big-but-boring hunks
+danger  = 1.5    # but really want eval/exec/secrets to float to the top
+
+# Mark extra paths as "dangerous by location", on top of the built-ins
+# (auth, crypto, migrations, CI, Dockerfiles, deps...). Each entry needs a
+# Python regex `pattern` (matched case-insensitively), `points`, and a `reason`.
+[[surface]]
+pattern = "(^|/)payments/"
+points  = 14
+reason  = "touches the payments module"
+
+[[surface]]
+pattern = "(^|/)infra/terraform/"
+points  = 12
+reason  = "touches infrastructure-as-code"
+```
+
+Known rule names for `[weights]` are `size`, `surface`, and `danger` (the same
+names you see under `"rule"` in `--json`).
 
 ## Tech
 

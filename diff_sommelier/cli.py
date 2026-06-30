@@ -21,6 +21,7 @@ import argparse
 import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 from diff_sommelier import __version__
 from diff_sommelier.budget import (
@@ -30,9 +31,11 @@ from diff_sommelier.budget import (
     fail_over,
     parse_budget,
 )
+from diff_sommelier.config import Config, ConfigError, load_config
 from diff_sommelier.parser import parse_diff
 from diff_sommelier.render import render_human, render_json
 from diff_sommelier.scorer import ScoredHunk, score_diff
+from diff_sommelier.source import SourceError, read_git
 
 PROG = "diff-sommelier"
 
@@ -75,6 +78,25 @@ def build_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"{PROG} {__version__}",
     )
+
+    # Diff source. Default is stdin (pipe `git diff` or `gh pr diff` in). These
+    # two convenience flags shell out to git instead and are mutually exclusive
+    # with each other; when either is given, stdin is not read.
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument(
+        "--staged",
+        action="store_true",
+        help="diff the git index (`git diff --cached`) instead of reading stdin",
+    )
+    source.add_argument(
+        "--range",
+        dest="range_spec",
+        metavar="A..B",
+        default=None,
+        help=(
+            "diff a git range (`git diff A..B`) instead of reading stdin, e.g. --range main..HEAD"
+        ),
+    )
     parser.add_argument(
         "--json",
         action="store_true",
@@ -108,6 +130,24 @@ def build_parser() -> argparse.ArgumentParser:
             "can flag a scary hunk. Combine with --json in a pipeline."
         ),
     )
+
+    # Config (.sommelier.toml) discovery controls.
+    cfg = parser.add_mutually_exclusive_group()
+    cfg.add_argument(
+        "--config",
+        metavar="PATH",
+        dest="config_path",
+        default=None,
+        help=(
+            "use this .sommelier.toml (rule weights + extra surface paths) "
+            "instead of discovering one by walking up from the cwd"
+        ),
+    )
+    cfg.add_argument(
+        "--no-config",
+        action="store_true",
+        help="ignore any .sommelier.toml and use the built-in defaults",
+    )
     return parser
 
 
@@ -126,23 +166,56 @@ def _resolve_budget(
     return apply_budget(scored, parse_budget(budget_spec))
 
 
+def _acquire_diff(args: argparse.Namespace) -> str:
+    """Get the raw unified diff text from the selected source.
+
+    stdin is the default (and how ``gh pr diff`` is piped in). ``--staged`` and
+    ``--range`` shell out to git instead. Raises
+    :class:`~diff_sommelier.source.SourceError` on a git problem so :func:`main`
+    can report it on stderr with a non-zero exit.
+    """
+    if args.staged or args.range_spec is not None:
+        return read_git(staged=args.staged, range_spec=args.range_spec)
+    return sys.stdin.read()
+
+
+def _load_cli_config(args: argparse.Namespace) -> Config:
+    """Resolve the .sommelier.toml for this invocation (honouring the flags)."""
+    explicit = Path(args.config_path) if args.config_path else None
+    return load_config(explicit=explicit, enabled=not args.no_config)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if sys.stdin.isatty():
-        # No piped diff; nothing to do. Point the user at --help.
+    using_git = args.staged or args.range_spec is not None
+    if not using_git and sys.stdin.isatty():
+        # No piped diff and no git source; nothing to do. Point at --help.
         parser.print_usage()
         print(
-            f"{PROG}: no diff on stdin. Pipe a unified diff, e.g. `git diff | {PROG}`.",
+            f"{PROG}: no diff on stdin. Pipe a unified diff (e.g. `git diff | {PROG}`), "
+            f"or use --staged / --range A..B.",
             file=sys.stderr,
         )
         return 0
 
+    try:
+        config = _load_cli_config(args)
+    except ConfigError as exc:
+        print(f"{PROG}: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        raw = _acquire_diff(args)
+    except SourceError as exc:
+        print(f"{PROG}: {exc}", file=sys.stderr)
+        return 2
+
     # Read once so we can both render and run the --fail-over gate over the same
-    # scored diff without re-parsing stdin.
-    diff = parse_diff(sys.stdin)
-    scored = score_diff(diff)
+    # scored diff without re-acquiring the source.
+    diff = parse_diff(raw.splitlines(keepends=True))
+    scored = score_diff(diff, rules=config.rules())
 
     # Colour only when asked for (default) AND stdout is a real terminal, so
     # piping the menu into a file or pager yields clean plain text.
