@@ -22,6 +22,8 @@ signals, the human **tasting menu** — a ranked, colour-coded terminal view
 (`diff_sommelier.budget`): a `--budget` cut line and a `--fail-over` exit code,
 and **git/PR ergonomics**: `--staged`, `--range A..B`, clean `gh pr diff`
 ingestion, and a `.sommelier.toml` for custom rule weights and surface paths.
+An opt-in **`--blast-radius`** flag cross-references changed symbols against the
+rest of the repo, so a *tiny* edit to a widely-used function gets flagged.
 See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and v0.2+ backlog.
 
 ```bash
@@ -98,6 +100,33 @@ git diff origin/main... | diff-sommelier --json --fail-over 80 > review.json
 The reading-time model lives in `diff_sommelier.budget.TimeModel`
 (`seconds_per_changed_line`, `per_hunk_overhead_s`) and is exposed on the API
 today.
+
+### Blast radius (`--blast-radius`)
+
+A two-line change to a function imported in forty files is high-risk *precisely
+because* it looks tiny — it sails past a reviewer while quietly touching the
+whole codebase. **`--blast-radius`** catches exactly that: it extracts the
+symbols a hunk defines/changes (or the function it lives inside), counts how
+often they're referenced across the rest of the working tree, and adds a
+weighted signal proportional to that reach.
+
+```bash
+diff-sommelier --staged --blast-radius
+git diff | diff-sommelier --blast-radius --json
+```
+
+```
+#  TIER  SCR  RISK                    WHY
+1  SIP    57  [###########       ]  lib/util.py:1  blast radius: 'compute_total'
+                                    reverberates across the codebase (40 places in the repo)
+```
+
+It's **opt-in** and fully **local/offline** — just a filesystem scan. It prefers
+your git-tracked files (so it honours `.gitignore`) and falls back to a bounded
+directory walk when git isn't available. Outside a repo (nothing to scan) it
+gracefully **no-ops**. Symbol extraction is a conservative, language-agnostic
+regex pass today (Python/JS/TS/Go and friends); tree-sitter precision is a later
+backlog item. Tune or mute it like any rule via `[weights]` (key: `blast-radius`).
 
 ### Scoring (`--json`)
 
@@ -181,6 +210,7 @@ Drop a `.sommelier.toml` at your repo root to tune scoring for your codebase.
 [weights]
 size    = 0.5    # we don't care much about big-but-boring hunks
 danger  = 1.5    # but really want eval/exec/secrets to float to the top
+# "blast-radius" = 0   # (opt-in rule) mute or amplify it too, e.g. 2.0
 
 # Mark extra paths as "dangerous by location", on top of the built-ins
 # (auth, crypto, migrations, CI, Dockerfiles, deps...). Each entry needs a
@@ -196,8 +226,9 @@ points  = 12
 reason  = "touches infrastructure-as-code"
 ```
 
-Known rule names for `[weights]` are `size`, `surface`, and `danger` (the same
-names you see under `"rule"` in `--json`).
+Known rule names for `[weights]` are `size`, `surface`, `danger`, and
+`blast-radius` (the same names you see under `"rule"` in `--json`;
+`blast-radius` only fires when you pass `--blast-radius`).
 
 ## Tech
 

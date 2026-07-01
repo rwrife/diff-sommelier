@@ -13,6 +13,8 @@ one-line *why* (the rules that fired). Output modes:
 ``--budget 5m|90s|10hunks`` draws a cut line in the menu (review above, skim
 below), and ``--fail-over <score>`` makes the process exit non-zero when any
 hunk meets or exceeds the threshold, so CI can flag a scary unreviewed hunk.
+``--blast-radius`` additionally cross-references changed symbols against the
+rest of the repo, so a tiny edit to a widely-used name floats up the order.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from diff_sommelier import __version__
+from diff_sommelier import blast_radius as _blast_radius
 from diff_sommelier.budget import (
     BudgetError,
     BudgetResult,
@@ -130,6 +133,16 @@ def build_parser() -> argparse.ArgumentParser:
             "can flag a scary hunk. Combine with --json in a pipeline."
         ),
     )
+    parser.add_argument(
+        "--blast-radius",
+        action="store_true",
+        help=(
+            "cross-reference changed symbols against the rest of the repo and "
+            "flag small hunks that touch widely-used names. Scans the working "
+            "tree (git-tracked files when available); no-ops outside a repo. "
+            "Opt-in and fully local."
+        ),
+    )
 
     # Config (.sommelier.toml) discovery controls.
     cfg = parser.add_mutually_exclusive_group()
@@ -215,7 +228,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Read once so we can both render and run the --fail-over gate over the same
     # scored diff without re-acquiring the source.
     diff = parse_diff(raw.splitlines(keepends=True))
-    scored = score_diff(diff, rules=config.rules())
+
+    # Assemble the active rule list: the config-tuned built-ins, plus the opt-in
+    # blast-radius rule when --blast-radius is set and there is a tree to scan.
+    # build_index returns None outside a repo / with nothing to scan, so this
+    # cleanly no-ops rather than erroring.
+    rules = config.rules()
+    if args.blast_radius:
+        index = _blast_radius.build_index()
+        rules = _blast_radius.append_rule(rules, index, weight=config.apply_weight)
+
+    scored = score_diff(diff, rules=rules)
 
     # Colour only when asked for (default) AND stdout is a real terminal, so
     # piping the menu into a file or pager yields clean plain text.

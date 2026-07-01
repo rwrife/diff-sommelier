@@ -39,6 +39,11 @@ from diff_sommelier.rules import danger as _danger
 from diff_sommelier.rules import size as _size
 from diff_sommelier.rules import surface as _surface
 
+# Rule name of the opt-in blast-radius rule. Imported as a constant (not the
+# module) to keep this file's import graph light and avoid a cycle: the rule is
+# assembled in the CLI, config only needs to know the *name* is weightable.
+_BLAST_RADIUS_RULE = "blast-radius"
+
 __all__ = [
     "ConfigError",
     "Config",
@@ -51,8 +56,9 @@ CONFIG_FILENAME = ".sommelier.toml"
 
 # Names the [weights] table may key on. These are the RULE constants the built-in
 # rule modules report on their signals, so weighting keys match what shows in
-# `--json` ("rule": ...).
-_KNOWN_RULES = (_size.RULE, _surface.RULE, _danger.RULE)
+# `--json` ("rule": ...). ``blast-radius`` is the opt-in rule (only active with
+# --blast-radius) but is weightable here so a project can tune it uniformly.
+_KNOWN_RULES = (_size.RULE, _surface.RULE, _danger.RULE, _BLAST_RADIUS_RULE)
 
 
 class ConfigError(RuntimeError):
@@ -102,6 +108,16 @@ class Config:
             weight = self.weights.get(name, 1.0)
             out.append(_weighted(rule, weight))
         return out
+
+    def apply_weight(self, name: str, rule: Rule) -> Rule:
+        """Wrap an *externally built* ``rule`` with its configured weight.
+
+        Used for the opt-in blast-radius rule, which the CLI assembles after
+        :meth:`rules` (it needs a repo scan the config layer shouldn't own). This
+        keeps all weighting — including for that rule — flowing through the same
+        ``[weights]`` table and the same :func:`_weighted` wrapper.
+        """
+        return _weighted(rule, self.weights.get(name, 1.0))
 
 
 def _weighted(rule: Rule, weight: float) -> Rule:
