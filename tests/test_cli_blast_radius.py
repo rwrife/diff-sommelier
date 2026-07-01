@@ -127,8 +127,12 @@ def test_build_index_none_for_missing_dir(tmp_path: Path) -> None:
     assert br.build_index(str(tmp_path / "does-not-exist")) is None
 
 
-def test_blast_radius_flag_is_harmless_on_plain_stdin() -> None:
-    # No repo context; the flag must not error, just add no signals.
+def test_blast_radius_flag_is_harmless_outside_repo(tmp_path: Path) -> None:
+    # Run with cwd in an *empty, non-repo* dir so there is nothing to scan and
+    # build_index() returns None -- the flag must not error, just add no signals.
+    # (Deterministic regardless of where the suite runs from.)
+    empty = tmp_path / "empty"
+    empty.mkdir()
     diff = (
         "diff --git a/x.py b/x.py\n"
         "--- a/x.py\n"
@@ -138,7 +142,7 @@ def test_blast_radius_flag_is_harmless_on_plain_stdin() -> None:
         "-    return 1\n"
         "+    return 2\n"
     )
-    res = _run_cli("--blast-radius", "--json", stdin=diff)
+    res = _run_cli("--blast-radius", "--json", stdin=diff, cwd=empty)
     assert res.returncode == 0, res.stderr
     hunks = json.loads(res.stdout)
     rules = {r["rule"] for h in hunks for r in h["signals"]}
