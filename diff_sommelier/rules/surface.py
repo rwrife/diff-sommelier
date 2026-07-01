@@ -14,7 +14,7 @@ source edit scores nothing here.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 from diff_sommelier.parser import File, Hunk
 from diff_sommelier.rules import Signal
@@ -87,9 +87,37 @@ _PATTERNS: tuple[tuple[re.Pattern[str], int, str], ...] = (
 )
 
 
-def score(hunk: Hunk, file: File) -> Iterator[Signal]:
-    """Yield one signal per sensitive surface the hunk's path matches."""
+def _score_with(
+    hunk: Hunk,
+    patterns: tuple[tuple[re.Pattern[str], int, str], ...],
+) -> Iterator[Signal]:
+    """Yield one signal per surface in ``patterns`` the hunk's path matches."""
     path = hunk.file_path.replace("\\", "/")
-    for pattern, points, reason in _PATTERNS:
+    for pattern, points, reason in patterns:
         if pattern.search(path):
             yield Signal(rule=RULE, points=points, reason=reason)
+
+
+def score(hunk: Hunk, file: File) -> Iterator[Signal]:
+    """Yield one signal per built-in sensitive surface the hunk's path matches."""
+    yield from _score_with(hunk, _PATTERNS)
+
+
+def make_rule(
+    extra: tuple[tuple[re.Pattern[str], int, str], ...],
+) -> Callable[[Hunk, File], Iterator[Signal]]:
+    """Build a surface rule that also honours user-configured ``extra`` paths.
+
+    Used by :mod:`diff_sommelier.config` to fold ``[[surface]]`` entries from a
+    ``.sommelier.toml`` into scoring without touching the built-in patterns.
+    Returns the plain :func:`score` when there is nothing extra, so the common
+    (no-config) path stays byte-for-byte identical.
+    """
+    if not extra:
+        return score
+    combined = (*_PATTERNS, *extra)
+
+    def score_extended(hunk: Hunk, file: File) -> Iterator[Signal]:
+        yield from _score_with(hunk, combined)
+
+    return score_extended
