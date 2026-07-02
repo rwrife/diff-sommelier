@@ -15,6 +15,8 @@ below), and ``--fail-over <score>`` makes the process exit non-zero when any
 hunk meets or exceeds the threshold, so CI can flag a scary unreviewed hunk.
 ``--blast-radius`` additionally cross-references changed symbols against the
 rest of the repo, so a tiny edit to a widely-used name floats up the order.
+``--hotspots`` mines ``git log`` so hunks in historically bug-prone files
+(high churn, often fixed) float up too.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from pathlib import Path
 
 from diff_sommelier import __version__
 from diff_sommelier import blast_radius as _blast_radius
+from diff_sommelier import hotspots as _hotspots
 from diff_sommelier.budget import (
     BudgetError,
     BudgetResult,
@@ -143,6 +146,15 @@ def build_parser() -> argparse.ArgumentParser:
             "Opt-in and fully local."
         ),
     )
+    parser.add_argument(
+        "--hotspots",
+        action="store_true",
+        help=(
+            "boost hunks in historically bug-prone files by mining `git log` "
+            "for per-file churn and fix frequency (Feathers-style hotspots). "
+            "No-ops outside a git repo. Opt-in and fully local."
+        ),
+    )
 
     # Config (.sommelier.toml) discovery controls.
     cfg = parser.add_mutually_exclusive_group()
@@ -237,6 +249,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.blast_radius:
         index = _blast_radius.build_index()
         rules = _blast_radius.append_rule(rules, index, weight=config.apply_weight)
+    if args.hotspots:
+        hotspot_index = _hotspots.build_index()
+        rules = _hotspots.append_rule(rules, hotspot_index, weight=config.apply_weight)
 
     scored = score_diff(diff, rules=rules)
 
