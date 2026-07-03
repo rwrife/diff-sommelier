@@ -38,6 +38,7 @@ from diff_sommelier.budget import (
     parse_budget,
 )
 from diff_sommelier.config import Config, ConfigError, load_config
+from diff_sommelier.enrich import DEFAULT_TOP_N, EnrichmentError
 from diff_sommelier.parser import parse_diff
 from diff_sommelier.render import render_human, render_json
 from diff_sommelier.scorer import ScoredHunk, score_diff
@@ -155,6 +156,29 @@ def build_parser() -> argparse.ArgumentParser:
             "No-ops outside a git repo. Opt-in and fully local."
         ),
     )
+    parser.add_argument(
+        "--explain-llm",
+        action="store_true",
+        help=(
+            "opt-in: after scoring, send only the top-N riskiest hunks to a "
+            "model and fold its 'what could break here?' notes into the reasons "
+            "(clearly labelled 'model:', and never changing the score). Off by "
+            "default; the core stays 100%% local. Requires a backend via the "
+            "SOMMELIER_LLM_BACKEND env var (use 'echo' for a local demo)."
+        ),
+    )
+    parser.add_argument(
+        "--explain-llm-top",
+        metavar="N",
+        dest="explain_llm_top",
+        type=int,
+        default=DEFAULT_TOP_N,
+        help=(
+            "how many top-ranked hunks to send when --explain-llm is set "
+            f"(default {DEFAULT_TOP_N}). Only these hunks are ever sent; the "
+            "rest of the diff never leaves your machine."
+        ),
+    )
 
     # Config (.sommelier.toml) discovery controls.
     cfg = parser.add_mutually_exclusive_group()
@@ -254,6 +278,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         rules = _hotspots.append_rule(rules, hotspot_index, weight=config.apply_weight)
 
     scored = score_diff(diff, rules=rules)
+
+    # Opt-in LLM enrichment (issue #7): after the heuristics have ranked the
+    # hunks, augment only the top-N riskiest with model notes. Imported lazily so
+    # the default, offline path never even loads the module. Notes are zero-point
+    # and clearly labelled, so they explain without moving the score or the
+    # ranking; a misconfigured/failed backend is reported cleanly (exit 2).
+    if args.explain_llm:
+        from diff_sommelier.enrich import enrich
+
+        try:
+            scored = enrich(scored, top_n=args.explain_llm_top)
+        except EnrichmentError as exc:
+            print(f"{PROG}: {exc}", file=sys.stderr)
+            return 2
 
     # Colour only when asked for (default) AND stdout is a real terminal, so
     # piping the menu into a file or pager yields clean plain text.
