@@ -44,6 +44,10 @@ from diff_sommelier.rules import surface as _surface
 # assembled in the CLI, config only needs to know the *name* is weightable.
 _BLAST_RADIUS_RULE = "blast-radius"
 
+# Rule name of the opt-in hotspots rule (git-log churn). Same rationale as the
+# blast-radius constant above: weightable by name without importing the module.
+_HOTSPOTS_RULE = "hotspots"
+
 __all__ = [
     "ConfigError",
     "Config",
@@ -58,7 +62,7 @@ CONFIG_FILENAME = ".sommelier.toml"
 # rule modules report on their signals, so weighting keys match what shows in
 # `--json` ("rule": ...). ``blast-radius`` is the opt-in rule (only active with
 # --blast-radius) but is weightable here so a project can tune it uniformly.
-_KNOWN_RULES = (_size.RULE, _surface.RULE, _danger.RULE, _BLAST_RADIUS_RULE)
+_KNOWN_RULES = (_size.RULE, _surface.RULE, _danger.RULE, _BLAST_RADIUS_RULE, _HOTSPOTS_RULE)
 
 
 class ConfigError(RuntimeError):

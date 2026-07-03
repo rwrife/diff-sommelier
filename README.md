@@ -23,7 +23,9 @@ signals, the human **tasting menu** — a ranked, colour-coded terminal view
 and **git/PR ergonomics**: `--staged`, `--range A..B`, clean `gh pr diff`
 ingestion, and a `.sommelier.toml` for custom rule weights and surface paths.
 An opt-in **`--blast-radius`** flag cross-references changed symbols against the
-rest of the repo, so a *tiny* edit to a widely-used function gets flagged.
+rest of the repo, so a *tiny* edit to a widely-used function gets flagged, and
+**`--hotspots`** mines `git log` to boost hunks in historically bug-prone files
+(high churn, often fixed).
 See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and v0.2+ backlog.
 
 ```bash
@@ -128,6 +130,35 @@ gracefully **no-ops**. Symbol extraction is a conservative, language-agnostic
 regex pass today (Python/JS/TS/Go and friends); tree-sitter precision is a later
 backlog item. Tune or mute it like any rule via `[weights]` (key: `blast-radius`).
 
+### Hotspots (`--hotspots`)
+
+Files that change constantly — and keep getting *fixed* — are where bugs breed.
+Michael Feathers called these **hotspots**. **`--hotspots`** mines your
+`git log` once for per-file **churn** (how many commits touched it) and **fix
+frequency** (how many of those commits looked like fixes: `fix`, `bug`,
+`revert`, `regression`…), then adds a weighted signal to hunks in the busiest,
+most-repeatedly-broken files — so a *one-line* tweak to a file with a bad
+history floats up your reading order.
+
+```bash
+diff-sommelier --staged --hotspots
+git diff | diff-sommelier --hotspots --json
+```
+
+```
+#  TIER  SCR  RISK                    WHY
+1  SIP    53  [###########       ]  app/core.py:1  hotspot: file changes very
+                                    frequently and is repeatedly fixed (37 commits, 14 fixes)
+```
+
+"Hot" is scaled **relative to your busiest file** (so the signal means the same
+in a small repo and a huge one), with a small absolute floor so a brand-new repo
+doesn't light everything up. A high **fix ratio** bumps the score: a file that
+is not just busy but *repeatedly broken* is the real danger. It's **opt-in** and
+fully **local/offline** (just `git log`), history is read once and cached, and
+outside a git repo (or with no history) it gracefully **no-ops**. Tune or mute
+it like any rule via `[weights]` (key: `hotspots`).
+
 ### Scoring (`--json`)
 
 `--json` emits a JSON array of hunks ordered most-risky-first. Every point on a
@@ -211,6 +242,7 @@ Drop a `.sommelier.toml` at your repo root to tune scoring for your codebase.
 size    = 0.5    # we don't care much about big-but-boring hunks
 danger  = 1.5    # but really want eval/exec/secrets to float to the top
 # "blast-radius" = 0   # (opt-in rule) mute or amplify it too, e.g. 2.0
+# hotspots       = 2.0 # (opt-in rule) lean harder on bug-prone files
 
 # Mark extra paths as "dangerous by location", on top of the built-ins
 # (auth, crypto, migrations, CI, Dockerfiles, deps...). Each entry needs a
@@ -226,9 +258,10 @@ points  = 12
 reason  = "touches infrastructure-as-code"
 ```
 
-Known rule names for `[weights]` are `size`, `surface`, `danger`, and
-`blast-radius` (the same names you see under `"rule"` in `--json`;
-`blast-radius` only fires when you pass `--blast-radius`).
+Known rule names for `[weights]` are `size`, `surface`, `danger`,
+`blast-radius`, and `hotspots` (the same names you see under `"rule"` in
+`--json`; `blast-radius` and `hotspots` only fire when you pass their opt-in
+flags).
 
 ## Tech
 
