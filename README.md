@@ -25,7 +25,10 @@ ingestion, and a `.sommelier.toml` for custom rule weights and surface paths.
 An opt-in **`--blast-radius`** flag cross-references changed symbols against the
 rest of the repo, so a *tiny* edit to a widely-used function gets flagged, and
 **`--hotspots`** mines `git log` to boost hunks in historically bug-prone files
-(high churn, often fixed).
+(high churn, often fixed). The first v0.2+ backlog item has also landed as a
+strictly optional layer: **`--explain-llm`** sends only the top-N riskiest hunks
+to a model for extra, clearly-labelled notes (off by default; the core stays
+100% local).
 See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and v0.2+ backlog.
 
 ```bash
@@ -158,6 +161,45 @@ is not just busy but *repeatedly broken* is the real danger. It's **opt-in** and
 fully **local/offline** (just `git log`), history is read once and cached, and
 outside a git repo (or with no history) it gracefully **no-ops**. Tune or mute
 it like any rule via `[weights]` (key: `hotspots`).
+
+### LLM enrichment (`--explain-llm`, opt-in)
+
+The heuristics are the source of truth: fast, free, offline, and every point on a
+score traces back to a named rule. **`--explain-llm`** adds a *strictly optional*
+layer on top: after ranking, it sends only the **top-N riskiest hunks** to a
+model, asks "what could break here?", and folds the answer back in as extra,
+clearly-labelled reasons. Heuristics still decide risk — the model only
+*explains*.
+
+```bash
+# Off by default. Pick a backend via an env var; 'echo' is a local, offline demo.
+SOMMELIER_LLM_BACKEND=echo git diff | diff-sommelier --explain-llm
+SOMMELIER_LLM_BACKEND=echo git diff | diff-sommelier --explain-llm --explain-llm-top 5 --json
+```
+
+```
+#  TIER  SCR  RISK                    WHY
+1  GULP   80  [################    ]  auth/login.py:10  adds dynamic eval/exec (+16);
+                                    touches authentication/session code (+14);
+                                    model: review the new admin bypass and eval() path
+```
+
+The contract is deliberately conservative:
+
+- **Disabled by default** — without the flag the tool is 100% local/offline and
+  never loads the enrichment code.
+- **Only the top-N are sent** — `--explain-llm-top N` (default `3`) bounds it;
+  the rest of the diff never leaves your machine.
+- **One batched call** — all N hunks go in a single request, so a run costs one
+  call regardless of N (respecting cost/rate limits).
+- **Notes are additive and labelled** — each model note shows up as a `model:`
+  reason (rule `llm` in `--json`) with **zero points**, so it never moves the
+  0-100 score or the ranking.
+- **Backend is env-keyed, with a clear error if unconfigured** — `--explain-llm`
+  without `SOMMELIER_LLM_BACKEND` set fails loudly (exit `2`) instead of silently
+  doing nothing. The offline `echo` backend ships today so you can see how notes
+  render with zero setup; provider-backed backends slot in without changing how
+  you call the tool.
 
 ### Scoring (`--json`)
 

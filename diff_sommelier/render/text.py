@@ -52,16 +52,29 @@ def _location(hunk) -> str:
     return f"{hunk.file_path}:{hunk.new_start}"
 
 
+def _reason_cell(signal) -> str:
+    """Format one signal for the WHY column.
+
+    A scoring signal shows its points (``reason (+7)``). A zero-point signal is
+    a non-scoring **note** (e.g. an opt-in model note): it rides along with the
+    reasons but the ``(+0)`` would be misleading, so we render just its text.
+    """
+    if signal.points > 0:
+        return f"{signal.reason} (+{signal.points})"
+    return signal.reason
+
+
 def _why(scored: ScoredHunk) -> str:
     """The reasons line: each reason with its points, most-impactful first.
 
     Signals already arrive sorted by descending points from the scorer, so we
-    keep that order. Zero-signal hunks get an explicit, honest placeholder
-    rather than a blank cell.
+    keep that order. Zero-point signals (notes, e.g. opt-in model notes) render
+    without a ``(+0)`` and naturally sort last. Zero-signal hunks get an
+    explicit, honest placeholder rather than a blank cell.
     """
     if not scored.signals:
         return "(no notable signals — skim-safe)"
-    return "; ".join(f"{s.reason} (+{s.points})" for s in scored.signals)
+    return "; ".join(_reason_cell(s) for s in scored.signals)
 
 
 def _summary(scored: Sequence[ScoredHunk]) -> str:
