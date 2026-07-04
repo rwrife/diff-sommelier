@@ -25,10 +25,11 @@ ingestion, and a `.sommelier.toml` for custom rule weights and surface paths.
 An opt-in **`--blast-radius`** flag cross-references changed symbols against the
 rest of the repo, so a *tiny* edit to a widely-used function gets flagged, and
 **`--hotspots`** mines `git log` to boost hunks in historically bug-prone files
-(high churn, often fixed). The first v0.2+ backlog item has also landed as a
-strictly optional layer: **`--explain-llm`** sends only the top-N riskiest hunks
+(high churn, often fixed). Two v0.2+ backlog items have also landed as strictly
+optional layers: **`--explain-llm`** sends only the top-N riskiest hunks
 to a model for extra, clearly-labelled notes (off by default; the core stays
-100% local).
+100% local), and a **GitHub Action** posts a self-updating *review-order menu*
+comment on every PR (a `--markdown` renderer under the hood).
 See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and v0.2+ backlog.
 
 ```bash
@@ -270,6 +271,89 @@ diff-sommelier --range origin/main...      # the merge-base form `git diff` unde
 `--staged` and `--range` shell out to `git` for you (no piping needed) and run
 in the current repo. They're mutually exclusive; with neither, the diff is read
 from stdin.
+
+## GitHub Action (review-order menu on every PR)
+
+Bring the tasting menu to where review actually happens. The bundled action
+runs `diff-sommelier` on each pull request and posts **one comment** — a
+reading-order checklist of the diff's hunks, most-risky-first, with the
+skim-safe ones tucked into a collapsed section. It **updates that same comment**
+on new pushes (no comment spam), and can optionally **fail a status check** when
+a hunk is scarier than a threshold.
+
+Drop this in as `.github/workflows/review-menu.yml`
+(see [`examples/github-action-workflow.yml`](./examples/github-action-workflow.yml)):
+
+```yaml
+name: Review menu
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read        # read the code
+  pull-requests: write  # post/update the menu comment + status
+
+jobs:
+  review-menu:
+    runs-on: ubuntu-latest
+    steps:
+      # Only needed for --blast-radius / --hotspots (they scan the tree/history).
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: rwrife/diff-sommelier@v0.1.0
+        with:
+          fail-over: "80"     # optional: fail the check when a hunk scores >= 80
+          blast-radius: "true"
+          hotspots: "true"
+```
+
+The comment looks like a menu you can tick through:
+
+```markdown
+## 🍷 diff-sommelier — review-order menu
+
+**7 hunks** across **4 files** · top risk **88**
+
+### Read these first
+_In recommended reading order, most-risky-first._
+
+| | # | Tier | Score | Location | Why |
+|---|---:|---|---:|---|---|
+| [ ] | 1 | 🔴 gulp | 88 | `auth/login.py:10` | adds dynamic eval/exec (+16); touches authentication/session code (+14) |
+| [ ] | 2 | 🟡 sip  | 34 | `db/migrate.py:12` | edits a database migration (+12) |
+
+<details><summary>🟢 Skim-safe · 5 hunks (low risk)</summary>
+... collapsed ...
+</details>
+```
+
+### Inputs
+
+| Input | Default | What it does |
+|---|---|---|
+| `fail-over` | _(off)_ | Also emit a **failing status check** when any hunk's score is `>=` this value. |
+| `blast-radius` | `false` | Pass `--blast-radius` (needs the repo checked out). |
+| `hotspots` | `false` | Pass `--hotspots` (needs `fetch-depth: 0` for full history). |
+| `config` | _(auto)_ | Path to a `.sommelier.toml` for custom rule weights/paths. |
+| `python-version` | `3.12` | Python used to run the CLI. |
+| `github-token` | `${{ github.token }}` | Token for reading the diff and posting the comment (`pull-requests: write`). |
+| `ref` | _(this action's ref)_ | Git ref/version of diff-sommelier to install. |
+
+### Outputs
+
+| Output | What it is |
+|---|---|
+| `score` | The highest hunk risk score in the diff (0–100). |
+| `hunks` | Total number of hunks in the diff. |
+| `comment-url` | Link to the posted/updated review-menu comment. |
+
+Under the hood the action is just the CLI: it pipes `gh pr diff` into
+`diff-sommelier --markdown` (which honours `--fail-over` and `--blast-radius` /
+`--hotspots`), so the comment says exactly what the terminal would. You can
+reproduce it locally with `gh pr diff <n> | diff-sommelier --markdown`.
 
 ## Config (`.sommelier.toml`)
 

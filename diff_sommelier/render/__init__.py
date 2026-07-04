@@ -13,6 +13,9 @@ consumer can actually read:
 * :mod:`~diff_sommelier.render.rich` — the colour terminal view: score bars and
   risk-tier colouring on top of the same layout. Degrades to the plain renderer
   if ``rich`` can't be imported.
+* :mod:`~diff_sommelier.render.markdown` — a GitHub-flavoured Markdown "menu"
+  sized for a PR comment (used by the GitHub Action): a reading-order checklist
+  with the skim-safe hunks tucked into a collapsed ``<details>`` block.
 
 All three share the **risk tier** vocabulary (:class:`Tier`): every hunk is a
 *savor* (skim-safe), a *sip* (read it), or a *gulp* (read this first). The tier
@@ -29,6 +32,7 @@ __all__ = [
     "tier_for",
     "render_human",
     "render_json",
+    "render_markdown",
 ]
 
 
@@ -37,6 +41,13 @@ def render_json(scored, *, indent: int | None = 2) -> str:
     from diff_sommelier.render.json import render_json as _impl
 
     return _impl(scored, indent=indent)
+
+
+def render_markdown(scored, *, title: str | None = None, fail_over: int | None = None) -> str:
+    """Render the PR-comment Markdown menu (see :mod:`.markdown`)."""
+    from diff_sommelier.render.markdown import render_markdown as _impl
+
+    return _impl(scored, title=title, fail_over=fail_over)
 
 
 def render_human(scored, *, color: bool = True, width: int | None = None, budget=None) -> str:

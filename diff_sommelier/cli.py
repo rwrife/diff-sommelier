@@ -40,7 +40,7 @@ from diff_sommelier.budget import (
 from diff_sommelier.config import Config, ConfigError, load_config
 from diff_sommelier.enrich import DEFAULT_TOP_N, EnrichmentError
 from diff_sommelier.parser import parse_diff
-from diff_sommelier.render import render_human, render_json
+from diff_sommelier.render import render_human, render_json, render_markdown
 from diff_sommelier.scorer import ScoredHunk, score_diff
 from diff_sommelier.source import SourceError, read_git
 
@@ -104,13 +104,30 @@ def build_parser() -> argparse.ArgumentParser:
             "diff a git range (`git diff A..B`) instead of reading stdin, e.g. --range main..HEAD"
         ),
     )
-    parser.add_argument(
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument(
         "--json",
         action="store_true",
         help=(
             "emit scored, explained hunks as a JSON array (most risky first) "
             "instead of the human tasting menu"
         ),
+    )
+    output.add_argument(
+        "--markdown",
+        action="store_true",
+        help=(
+            "emit a GitHub-flavoured Markdown menu sized for a PR comment: a "
+            "reading-order checklist with the skim-safe hunks in a collapsed "
+            "section. Used by the GitHub Action. Honours --fail-over for the "
+            "CI-gate note; pair with --title to name the PR."
+        ),
+    )
+    parser.add_argument(
+        "--title",
+        metavar="TEXT",
+        default=None,
+        help="override the heading of the --markdown menu (e.g. the PR title)",
     )
     parser.add_argument(
         "--no-color",
@@ -299,6 +316,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.json:
         print(render_json(scored))
+    elif args.markdown:
+        print(render_markdown(scored, title=args.title, fail_over=args.fail_over))
     else:
         try:
             budget = _resolve_budget(scored, args.budget)

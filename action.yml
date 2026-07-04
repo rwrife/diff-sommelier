@@ -1,0 +1,176 @@
+name: "diff-sommelier review menu"
+description: >-
+  Post (and keep updated) a single PR comment that ranks the diff's hunks by
+  risk + surprise and tells reviewers what to read first — skim-safe hunks
+  collapsed. Optionally fail a status check when a hunk is scarier than a
+  threshold.
+author: "rwrife"
+branding:
+  icon: "eye"
+  color: "purple"
+
+inputs:
+  github-token:
+    description: >-
+      Token used to read the PR diff and post/update the comment. The default
+      GITHUB_TOKEN is fine; it needs `pull-requests: write` (and `contents:
+      read`). Only used to talk to the GitHub API for this repository.
+    required: false
+    default: ${{ github.token }}
+  fail-over:
+    description: >-
+      If set to a score 0-100, the action also emits a failing status check
+      when any hunk's risk score is >= this value (a scary hunk nobody may have
+      read). Leave empty to only post the informational comment.
+    required: false
+    default: ""
+  blast-radius:
+    description: >-
+      Pass through `--blast-radius`: cross-reference changed symbols against the
+      rest of the repo so a small edit to a widely-used name floats up. Requires
+      the repo to be checked out. Set to "true" to enable.
+    required: false
+    default: "false"
+  hotspots:
+    description: >-
+      Pass through `--hotspots`: boost hunks in historically bug-prone files by
+      mining `git log`. Requires full history (actions/checkout with
+      `fetch-depth: 0`). Set to "true" to enable.
+    required: false
+    default: "false"
+  config:
+    description: >-
+      Optional path to a `.sommelier.toml` (custom rule weights / surface
+      paths). Defaults to auto-discovery from the checkout, or the built-ins.
+    required: false
+    default: ""
+  python-version:
+    description: "Python version used to run the CLI."
+    required: false
+    default: "3.12"
+  ref:
+    description: >-
+      Git ref/version of diff-sommelier to install (a tag, branch, or SHA of
+      this repo). Defaults to the ref this action was called with.
+    required: false
+    default: ""
+
+outputs:
+  score:
+    description: "The highest hunk risk score in the diff (0-100)."
+    value: ${{ steps.menu.outputs.score }}
+  hunks:
+    description: "Total number of hunks in the diff."
+    value: ${{ steps.menu.outputs.hunks }}
+  comment-url:
+    description: "API URL of the posted/updated review-menu comment."
+    value: ${{ steps.comment.outputs.comment-url }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Guard — this action only runs on pull requests
+      shell: bash
+      run: |
+        if [ -z "${{ github.event.pull_request.number }}" ]; then
+          echo "::warning::diff-sommelier: not a pull_request event; nothing to do."
+          echo "DIFF_SOMMELIER_SKIP=1" >> "$GITHUB_ENV"
+        fi
+
+    - name: Set up Python
+      if: env.DIFF_SOMMELIER_SKIP != '1'
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install diff-sommelier
+      if: env.DIFF_SOMMELIER_SKIP != '1'
+      shell: bash
+      env:
+        DS_REF: ${{ inputs.ref != '' && inputs.ref || github.action_ref }}
+      run: |
+        set -euo pipefail
+        REF="${DS_REF:-main}"
+        echo "Installing diff-sommelier @ ${REF} from rwrife/diff-sommelier"
+        python -m pip install --upgrade pip >/dev/null
+        pip install "git+https://github.com/rwrife/diff-sommelier@${REF}"
+
+    - name: Build the review menu
+      id: menu
+      if: env.DIFF_SOMMELIER_SKIP != '1'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PR_TITLE: ${{ github.event.pull_request.title }}
+        FAIL_OVER: ${{ inputs.fail-over }}
+        BLAST_RADIUS: ${{ inputs.blast-radius }}
+        HOTSPOTS: ${{ inputs.hotspots }}
+        CONFIG: ${{ inputs.config }}
+        REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+
+        # 1) Grab the PR's unified diff via the API (no full checkout needed for
+        #    the core; blast-radius/hotspots do want the tree/history though).
+        gh pr diff "$PR_NUMBER" --repo "$REPO" > /tmp/ds.diff
+        echo "Diff is $(wc -l < /tmp/ds.diff) lines."
+
+        # 2) Assemble CLI flags from the inputs.
+        FLAGS=(--markdown --title "diff-sommelier — ${PR_TITLE}")
+        [ -n "$FAIL_OVER" ] && FLAGS+=(--fail-over "$FAIL_OVER")
+        [ "$BLAST_RADIUS" = "true" ] && FLAGS+=(--blast-radius)
+        [ "$HOTSPOTS" = "true" ] && FLAGS+=(--hotspots)
+        [ -n "$CONFIG" ] && FLAGS+=(--config "$CONFIG")
+
+        # 3) Render the Markdown menu. --fail-over makes the CLI exit 1 when a
+        #    hunk trips the threshold; capture that WITHOUT aborting the step so
+        #    we still post the comment. The gate is re-applied in a later step.
+        set +e
+        diff-sommelier "${FLAGS[@]}" < /tmp/ds.diff > /tmp/ds.md
+        DS_EXIT=$?
+        set -e
+        echo "tripped=${DS_EXIT}" >> "$GITHUB_OUTPUT"
+
+        # 4) Also grab the machine JSON for the summary + step outputs.
+        JSON_FLAGS=(--json)
+        [ "$BLAST_RADIUS" = "true" ] && JSON_FLAGS+=(--blast-radius)
+        [ "$HOTSPOTS" = "true" ] && JSON_FLAGS+=(--hotspots)
+        [ -n "$CONFIG" ] && JSON_FLAGS+=(--config "$CONFIG")
+        diff-sommelier "${JSON_FLAGS[@]}" < /tmp/ds.diff > /tmp/ds.json
+
+        TOP=$(python -c 'import json,sys; d=json.load(open("/tmp/ds.json")); print(max((h["score"] for h in d), default=0))')
+        COUNT=$(python -c 'import json; print(len(json.load(open("/tmp/ds.json"))))')
+        echo "score=${TOP}" >> "$GITHUB_OUTPUT"
+        echo "hunks=${COUNT}" >> "$GITHUB_OUTPUT"
+
+        # 5) Job summary is a nice bonus (shows in the Actions run page).
+        cat /tmp/ds.md >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Post or update the PR comment
+      id: comment
+      if: env.DIFF_SOMMELIER_SKIP != '1'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        bash "${{ github.action_path }}/scripts/upsert_comment.sh" \
+          "$REPO" "$PR_NUMBER" /tmp/ds.md
+
+    - name: Apply CI gate (fail-over)
+      if: env.DIFF_SOMMELIER_SKIP != '1' && inputs.fail-over != ''
+      shell: bash
+      env:
+        TRIPPED: ${{ steps.menu.outputs.tripped }}
+        SCORE: ${{ steps.menu.outputs.score }}
+        FAIL_OVER: ${{ inputs.fail-over }}
+      run: |
+        set -euo pipefail
+        if [ "${TRIPPED}" != "0" ]; then
+          echo "::error::diff-sommelier: a hunk scored ${SCORE} (>= ${FAIL_OVER}). See the review menu comment."
+          exit 1
+        fi
+        echo "diff-sommelier: top risk ${SCORE} is under the ${FAIL_OVER} threshold. ✅"
