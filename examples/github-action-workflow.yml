@@ -1,0 +1,35 @@
+# Example: run diff-sommelier on every pull request and post a review-order
+# menu comment. Copy this into your repo as `.github/workflows/review-menu.yml`.
+#
+# It posts (and updates) a single comment ranking the PR's hunks by risk +
+# surprise, with the skim-safe ones collapsed. Set `fail-over` to also fail a
+# status check when a hunk is scarier than your threshold.
+name: Review menu
+
+on:
+  pull_request:
+    # Re-run (and update the same comment) when the PR gains new commits.
+    types: [opened, synchronize, reopened]
+
+# Least privilege: read the code, write PR comments/status.
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review-menu:
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout is only needed for --blast-radius / --hotspots (they scan the
+      # tree / git history). fetch-depth: 0 gives --hotspots full history.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: rwrife/diff-sommelier@v0.1.0
+        with:
+          # Optional: fail the check when any hunk scores >= 80.
+          fail-over: "80"
+          # Optional local-only signal boosts:
+          blast-radius: "true"
+          hotspots: "true"

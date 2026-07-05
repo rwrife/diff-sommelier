@@ -1,6 +1,6 @@
 """Tests for the CLI: package import, version, the stdin file/hunk counter
-(``count_diff``, still backed by the real M2 parser), and the M4 output modes
-(the default human tasting menu and ``--json``)."""
+(``count_diff``, still backed by the real M2 parser), and the output modes (the
+default human tasting menu, ``--json``, and the ``--markdown`` PR-comment view)."""
 
 from __future__ import annotations
 
@@ -156,3 +156,50 @@ def test_default_empty_input_is_friendly() -> None:
     result = _run_cli("")
     assert result.returncode == 0
     assert "0 hunks" in result.stdout
+
+
+def test_markdown_flag_emits_a_pr_comment_menu() -> None:
+    """`--markdown` prints the GitHub-flavoured PR-comment menu (backlog #5)."""
+    result = _run_cli(RISKY_DIFF, "--markdown")
+    assert result.returncode == 0
+    out = result.stdout
+    # Hidden update marker leads, then the heading, table, and legend.
+    assert out.startswith("<!-- diff-sommelier:review-menu -->")
+    assert "| Tier | Score | Location | Why |" in out
+    assert "auth/login.py:1" in out
+    assert "eval/exec" in out
+
+
+def test_markdown_title_flag_sets_the_heading() -> None:
+    result = _run_cli(RISKY_DIFF, "--markdown", "--title", "My PR #7")
+    assert result.returncode == 0
+    assert "## My PR #7" in result.stdout
+
+
+def test_markdown_and_json_are_mutually_exclusive() -> None:
+    """Only one output mode may be selected; argparse rejects the combo (exit 2)."""
+    result = _run_cli(RISKY_DIFF, "--markdown", "--json")
+    assert result.returncode == 2
+    assert "not allowed with" in result.stderr
+
+
+def test_markdown_with_fail_over_still_prints_menu_but_exits_nonzero() -> None:
+    """The CI-gate exit code must not suppress the comment body on stdout.
+
+    The GitHub Action relies on this: it captures stdout (the menu) to post the
+    comment, and separately uses the non-zero exit as the failing status check.
+    """
+    result = _run_cli(RISKY_DIFF, "--markdown", "--fail-over", "1")
+    assert result.returncode == 1
+    # The full menu is still on stdout for the Action to post.
+    assert result.stdout.startswith("<!-- diff-sommelier:review-menu -->")
+    assert "CI gate" in result.stdout
+    # The trip reason goes to stderr (doesn't pollute the comment body).
+    assert "fail-over tripped" in result.stderr
+
+
+def test_markdown_empty_input_is_a_friendly_marker_comment() -> None:
+    result = _run_cli("", "--markdown")
+    assert result.returncode == 0
+    assert result.stdout.startswith("<!-- diff-sommelier:review-menu -->")
+    assert "Nothing to taste" in result.stdout
