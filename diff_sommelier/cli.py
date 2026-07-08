@@ -8,7 +8,10 @@ one-line *why* (the rules that fired). Output modes:
 * default — the human tasting menu (colour via :mod:`rich` when stdout is a
   terminal; deterministic plain text otherwise or with ``--no-color``);
 * ``--json`` — the scored, explained hunks as a JSON array (the machine
-  contract for agents, editors, and the budget/CI tooling).
+  contract for agents, editors, and the budget/CI tooling);
+* ``--sarif`` — the ranked hunks as a SARIF 2.1.0 log, for upload via
+  ``upload-sarif`` so the risky hunks appear as inline code-scanning
+  annotations (tier drives the SARIF level).
 
 ``--budget 5m|90s|10hunks`` draws a cut line in the menu (review above, skim
 below), and ``--fail-over <score>`` makes the process exit non-zero when any
@@ -40,7 +43,7 @@ from diff_sommelier.budget import (
 from diff_sommelier.config import Config, ConfigError, load_config
 from diff_sommelier.enrich import DEFAULT_TOP_N, EnrichmentError
 from diff_sommelier.parser import parse_diff
-from diff_sommelier.render import render_human, render_json, render_markdown
+from diff_sommelier.render import render_human, render_json, render_markdown, render_sarif
 from diff_sommelier.scorer import ScoredHunk, score_diff
 from diff_sommelier.source import SourceError, read_git
 
@@ -123,11 +126,26 @@ def build_parser() -> argparse.ArgumentParser:
             "CI-gate note; pair with --title to name the PR."
         ),
     )
+    output.add_argument(
+        "--sarif",
+        action="store_true",
+        help=(
+            "emit a SARIF 2.1.0 log (JSON) of the ranked hunks instead of the "
+            "human menu, so they can be uploaded with `upload-sarif` and show "
+            "up as inline code-scanning annotations in the PR 'Files changed' "
+            "view and the Security tab. Risk tier drives the SARIF level "
+            "(gulp=error, sip=warning, savor=note). Honours --fail-over and "
+            "--title (recorded in the log's properties)."
+        ),
+    )
     parser.add_argument(
         "--title",
         metavar="TEXT",
         default=None,
-        help="override the heading of the --markdown menu (e.g. the PR title)",
+        help=(
+            "override the heading of the --markdown menu (e.g. the PR title); "
+            "also recorded in the --sarif log's run properties"
+        ),
     )
     parser.add_argument(
         "--no-color",
@@ -318,6 +336,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(render_json(scored))
     elif args.markdown:
         print(render_markdown(scored, title=args.title, fail_over=args.fail_over))
+    elif args.sarif:
+        print(render_sarif(scored, title=args.title, fail_over=args.fail_over))
     else:
         try:
             budget = _resolve_budget(scored, args.budget)

@@ -28,8 +28,10 @@ rest of the repo, so a *tiny* edit to a widely-used function gets flagged, and
 (high churn, often fixed). Two v0.2+ backlog items have also landed as strictly
 optional layers: **`--explain-llm`** sends only the top-N riskiest hunks
 to a model for extra, clearly-labelled notes (off by default; the core stays
-100% local), and a **GitHub Action** posts a self-updating *review-order menu*
-comment on every PR (a `--markdown` renderer under the hood).
+100% local), a **GitHub Action** posts a self-updating *review-order menu*
+comment on every PR (a `--markdown` renderer under the hood), and **`--sarif`**
+emits a SARIF 2.1.0 log so the ranked hunks surface as inline **code-scanning
+annotations** (tier drives the SARIF level).
 See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and v0.2+ backlog.
 
 ```bash
@@ -41,6 +43,7 @@ diff-sommelier --staged                # -> the same, straight from the git inde
 diff-sommelier --range main..HEAD      # -> what a PR added vs. main
 git diff | diff-sommelier --budget 5m  # -> menu with a "review above / skim below" cut
 git diff | diff-sommelier --json       # -> scored, explained hunks as JSON
+git diff | diff-sommelier --sarif      # -> SARIF 2.1.0 for code-scanning annotations
 ```
 
 ### The tasting menu (default)
@@ -248,6 +251,56 @@ diff = parse_diff(open("changes.patch").read())
 for hunk in diff.hunks:
     print(hunk.id, hunk.file_path, f"+{hunk.added}/-{hunk.removed}", hunk.header)
 ```
+
+### SARIF for code scanning (`--sarif`)
+
+A comment nobody expands is easy to ignore. **`--sarif`** emits a
+[SARIF 2.1.0](https://sarifweb.azurewebsites.net/) log so the ranked hunks show
+up as **inline annotations** exactly where reviewers already look — the PR
+**"Files changed"** view, the repo **Security → Code scanning** tab, and any
+SARIF-aware IDE (the VS Code SARIF Viewer, etc.).
+
+The risk **tier drives the SARIF level**, so the annotations agree with the
+tasting menu's colours:
+
+| Tier | SARIF `level` | Shows up as |
+|---|---|---|
+| 🔴 gulp | `error` | a red code-scanning error |
+| 🟡 sip | `warning` | a yellow warning |
+| 🟢 savor | `note` | a low-key note |
+
+Each hunk becomes one `result`: its `physicalLocation` is the file + the
+post-image line range, `message.text` is the same one-line *why* the menu shows,
+`ruleId` is the dominant firing rule (with a `rules[]` catalog in
+`tool.driver`), and `properties` carries the 0-100 `score` and the stable hunk
+id. Output is deterministic (stable order, no timestamps).
+
+```bash
+git diff origin/main... | diff-sommelier --sarif > diff-sommelier.sarif
+# --sarif is a JSON output mode (mutually exclusive with --json/--markdown);
+# it still honours --fail-over (exit code) and --title (recorded in the log).
+```
+
+Drop this step into a workflow to publish the annotations (works alongside the
+review-order comment):
+
+```yaml
+- name: diff-sommelier -> SARIF
+  run: |
+    git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+    git diff "origin/${{ github.base_ref }}..." \
+      | diff-sommelier --sarif --title "${{ github.event.pull_request.title }}" \
+      > diff-sommelier.sarif
+
+- name: Upload SARIF
+  uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: diff-sommelier.sarif
+    category: diff-sommelier
+```
+
+> Needs `permissions: security-events: write` on the job so the upload can
+> post code-scanning results.
 
 ## Real repos & PRs
 

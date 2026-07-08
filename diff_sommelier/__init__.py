@@ -24,7 +24,7 @@ from diff_sommelier.budget import (
     parse_budget,
 )
 from diff_sommelier.parser import ChangeType, Diff, File, Hunk, parse_diff
-from diff_sommelier.render import Tier, render_human, render_json, tier_for
+from diff_sommelier.render import Tier, render_human, render_json, render_sarif, tier_for
 from diff_sommelier.rules import Signal
 from diff_sommelier.scorer import ScoredHunk, score_diff, score_hunk
 
@@ -43,6 +43,7 @@ __all__ = [
     "tier_for",
     "render_human",
     "render_json",
+    "render_sarif",
     "Budget",
     "BudgetResult",
     "TimeModel",
