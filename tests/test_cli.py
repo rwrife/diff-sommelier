@@ -1,6 +1,7 @@
 """Tests for the CLI: package import, version, the stdin file/hunk counter
 (``count_diff``, still backed by the real M2 parser), and the output modes (the
-default human tasting menu, ``--json``, and the ``--markdown`` PR-comment view)."""
+default human tasting menu, ``--json``, the ``--markdown`` PR-comment view, and
+the ``--sarif`` code-scanning log)."""
 
 from __future__ import annotations
 
@@ -203,3 +204,68 @@ def test_markdown_empty_input_is_a_friendly_marker_comment() -> None:
     assert result.returncode == 0
     assert result.stdout.startswith("<!-- diff-sommelier:review-menu -->")
     assert "Nothing to taste" in result.stdout
+
+
+def test_sarif_flag_emits_a_sarif_log() -> None:
+    """`--sarif` prints a SARIF 2.1.0 log (a JSON object) of the ranked hunks."""
+    result = _run_cli(RISKY_DIFF, "--sarif")
+    assert result.returncode == 0
+    log = json.loads(result.stdout)
+    assert log["version"] == "2.1.0"
+    assert log["$schema"].endswith("sarif-schema-2.1.0.json")
+    run = log["runs"][0]
+    assert run["tool"]["driver"]["name"] == "diff-sommelier"
+    # One result for the single risky hunk, mapped to the gulp -> error level.
+    result_obj = run["results"][0]
+    assert result_obj["level"] == "error"
+    assert result_obj["ruleId"] == "danger"
+    loc = result_obj["locations"][0]["physicalLocation"]
+    assert loc["artifactLocation"]["uri"] == "auth/login.py"
+    assert loc["region"]["startLine"] == 1
+    assert "eval/exec" in result_obj["message"]["text"]
+    # The firing rule resolves in the driver catalog.
+    assert any(r["id"] == "danger" for r in run["tool"]["driver"]["rules"])
+
+
+def test_sarif_title_flag_is_recorded_in_run_properties() -> None:
+    result = _run_cli(RISKY_DIFF, "--sarif", "--title", "My PR #7")
+    assert result.returncode == 0
+    log = json.loads(result.stdout)
+    assert log["runs"][0]["properties"]["title"] == "My PR #7"
+
+
+def test_sarif_and_json_are_mutually_exclusive() -> None:
+    """Only one output mode may be selected; argparse rejects the combo (exit 2)."""
+    result = _run_cli(RISKY_DIFF, "--sarif", "--json")
+    assert result.returncode == 2
+    assert "not allowed with" in result.stderr
+
+
+def test_sarif_and_markdown_are_mutually_exclusive() -> None:
+    result = _run_cli(RISKY_DIFF, "--sarif", "--markdown")
+    assert result.returncode == 2
+    assert "not allowed with" in result.stderr
+
+
+def test_sarif_with_fail_over_still_prints_log_but_exits_nonzero() -> None:
+    """The CI-gate exit code must not suppress the SARIF body on stdout.
+
+    An uploader step captures stdout (the log) to hand to ``upload-sarif``, and
+    separately uses the non-zero exit as the failing status check.
+    """
+    result = _run_cli(RISKY_DIFF, "--sarif", "--fail-over", "1")
+    assert result.returncode == 1
+    # The full, valid SARIF log is still on stdout for the uploader.
+    log = json.loads(result.stdout)
+    assert log["version"] == "2.1.0"
+    assert log["runs"][0]["properties"]["failOver"] == 1
+    # The trip reason goes to stderr (doesn't corrupt the JSON on stdout).
+    assert "fail-over tripped" in result.stderr
+
+
+def test_sarif_empty_input_is_a_valid_empty_log() -> None:
+    result = _run_cli("", "--sarif")
+    assert result.returncode == 0
+    log = json.loads(result.stdout)
+    assert log["version"] == "2.1.0"
+    assert log["runs"][0]["results"] == []

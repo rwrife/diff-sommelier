@@ -16,6 +16,11 @@ consumer can actually read:
 * :mod:`~diff_sommelier.render.markdown` — a GitHub-flavoured Markdown "menu"
   sized for a PR comment (used by the GitHub Action): a reading-order checklist
   with the skim-safe hunks tucked into a collapsed ``<details>`` block.
+* :mod:`~diff_sommelier.render.sarif` — a SARIF 2.1.0 log so the ranked hunks
+  can be uploaded via ``upload-sarif`` and appear as inline code-scanning
+  annotations in the PR "Files changed" view, the Security tab, and SARIF-aware
+  IDEs. The risk tier drives the SARIF ``level`` (gulp→error, sip→warning,
+  savor→note), so the annotations agree with the human menu.
 
 All three share the **risk tier** vocabulary (:class:`Tier`): every hunk is a
 *savor* (skim-safe), a *sip* (read it), or a *gulp* (read this first). The tier
@@ -33,6 +38,7 @@ __all__ = [
     "render_human",
     "render_json",
     "render_markdown",
+    "render_sarif",
 ]
 
 
@@ -48,6 +54,15 @@ def render_markdown(scored, *, title: str | None = None, fail_over: int | None =
     from diff_sommelier.render.markdown import render_markdown as _impl
 
     return _impl(scored, title=title, fail_over=fail_over)
+
+
+def render_sarif(
+    scored, *, title: str | None = None, fail_over: int | None = None, indent: int | None = 2
+) -> str:
+    """Render scored hunks as a SARIF 2.1.0 log (see :mod:`.sarif`)."""
+    from diff_sommelier.render.sarif import render_sarif as _impl
+
+    return _impl(scored, title=title, fail_over=fail_over, indent=indent)
 
 
 def render_human(scored, *, color: bool = True, width: int | None = None, budget=None) -> str:
