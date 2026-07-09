@@ -46,9 +46,7 @@ __all__ = ["render_sarif", "SARIF_VERSION", "SARIF_SCHEMA", "TIER_LEVEL"]
 
 # SARIF interchange format version and the canonical schema URL for 2.1.0.
 SARIF_VERSION = "2.1.0"
-SARIF_SCHEMA = (
-    "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json"
-)
+SARIF_SCHEMA = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json"
 
 # The tool identity stamped into every run's ``tool.driver``.
 _DRIVER_NAME = "diff-sommelier"
