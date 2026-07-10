@@ -11,7 +11,10 @@ one-line *why* (the rules that fired). Output modes:
   contract for agents, editors, and the budget/CI tooling);
 * ``--sarif`` — the ranked hunks as a SARIF 2.1.0 log, for upload via
   ``upload-sarif`` so the risky hunks appear as inline code-scanning
-  annotations (tier drives the SARIF level).
+  annotations (tier drives the SARIF level);
+* ``--context-budget 6000tok|8hunks`` — a token-bounded, paste-ready review
+  *bundle* of only the highest-risk hunks (most-dangerous-first) for an AI
+  reviewer with a context limit (the machine-side sibling of ``--budget``).
 
 ``--budget 5m|90s|10hunks`` draws a cut line in the menu (review above, skim
 below), and ``--fail-over <score>`` makes the process exit non-zero when any
@@ -44,6 +47,7 @@ from diff_sommelier.config import Config, ConfigError, load_config
 from diff_sommelier.enrich import DEFAULT_TOP_N, EnrichmentError
 from diff_sommelier.parser import parse_diff
 from diff_sommelier.render import render_human, render_json, render_markdown, render_sarif
+from diff_sommelier.render.bundle import ContextBudgetError, parse_context_budget
 from diff_sommelier.scorer import ScoredHunk, score_diff
 from diff_sommelier.source import SourceError, read_git
 
@@ -136,6 +140,22 @@ def build_parser() -> argparse.ArgumentParser:
             "view and the Security tab. Risk tier drives the SARIF level "
             "(gulp=error, sip=warning, savor=note). Honours --fail-over and "
             "--title (recorded in the log's properties)."
+        ),
+    )
+    output.add_argument(
+        "--context-budget",
+        metavar="SPEC",
+        dest="context_budget",
+        default=None,
+        help=(
+            "emit a token-bounded, paste-ready review BUNDLE of only the "
+            "highest-risk hunks (most-dangerous-first) for an AI reviewer, "
+            "instead of the human menu. SPEC is an approximate token cap "
+            "('6000tok') or a hunk count ('8hunks', or a bare integer). "
+            "Selection stops at the budget and a trailer reports how many "
+            "lower-risk hunks were omitted. Pipe it to your reviewer; no "
+            "network/LLM call is made. Pair with --title to include the "
+            "stated intent in the preamble."
         ),
     )
     parser.add_argument(
@@ -338,6 +358,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(render_markdown(scored, title=args.title, fail_over=args.fail_over))
     elif args.sarif:
         print(render_sarif(scored, title=args.title, fail_over=args.fail_over))
+    elif args.context_budget is not None:
+        try:
+            ctx_budget = parse_context_budget(args.context_budget)
+        except ContextBudgetError as exc:
+            print(f"{PROG}: {exc}", file=sys.stderr)
+            return 2
+        from diff_sommelier.render import render_bundle
+
+        print(render_bundle(scored, budget=ctx_budget, title=args.title))
     else:
         try:
             budget = _resolve_budget(scored, args.budget)

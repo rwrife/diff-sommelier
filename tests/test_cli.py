@@ -269,3 +269,103 @@ def test_sarif_empty_input_is_a_valid_empty_log() -> None:
     log = json.loads(result.stdout)
     assert log["version"] == "2.1.0"
     assert log["runs"][0]["results"] == []
+
+
+# A three-hunk diff (one per tier) so the --context-budget cutoff and the
+# omitted-count trailer are exercised end-to-end through the CLI.
+CONTEXT_DIFF = "\n".join(
+    [
+        "diff --git a/auth/login.py b/auth/login.py",
+        "--- a/auth/login.py",
+        "+++ b/auth/login.py",
+        "@@ -1,2 +1,4 @@",
+        " def login(u, p):",
+        "-    return ok(u, p)",
+        '+    API_KEY = "sk-live-abcd1234abcd1234abcd"',
+        "+    if eval(u):",
+        "+        return True",
+        "diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml",
+        "--- a/.github/workflows/ci.yml",
+        "+++ b/.github/workflows/ci.yml",
+        "@@ -1,1 +1,2 @@",
+        " name: CI",
+        "+  run: deploy.sh",
+        "diff --git a/README.md b/README.md",
+        "--- a/README.md",
+        "+++ b/README.md",
+        "@@ -1,1 +1,2 @@",
+        " # Title",
+        "+a docs line",
+        "",
+    ]
+)
+
+
+def test_context_budget_hunks_emits_a_paste_ready_bundle() -> None:
+    """`--context-budget 8hunks` prints a ranked, paste-ready review bundle."""
+    result = _run_cli(CONTEXT_DIFF, "--context-budget", "8hunks")
+    assert result.returncode == 0
+    out = result.stdout
+    assert "highest-risk hunks first" in out
+    # Ranked most-risky-first: auth hunk before CI hunk before docs hunk.
+    assert out.index("auth/login.py") < out.index(".github/workflows/ci.yml")
+    # Raw hunk body is included for the reviewer.
+    assert "```diff" in out
+    assert "All 3 hunks fit within the budget" in out
+
+
+def test_context_budget_tokens_form_works_over_stdin() -> None:
+    result = _run_cli(CONTEXT_DIFF, "--context-budget", "6000tok")
+    assert result.returncode == 0
+    assert "auth/login.py:1" in result.stdout
+
+
+def test_context_budget_stops_at_the_cut_and_reports_omitted() -> None:
+    result = _run_cli(CONTEXT_DIFF, "--context-budget", "2hunks")
+    assert result.returncode == 0
+    out = result.stdout
+    assert "auth/login.py" in out
+    assert ".github/workflows/ci.yml" in out
+    assert "README.md" not in out
+    assert "1 lower-risk hunk omitted" in out
+
+
+def test_context_budget_title_is_folded_into_the_preamble() -> None:
+    result = _run_cli(CONTEXT_DIFF, "--context-budget", "8hunks", "--title", "Add SSO")
+    assert result.returncode == 0
+    assert "Stated intent:" in result.stdout
+    assert "Add SSO" in result.stdout
+
+
+def test_context_budget_and_json_are_mutually_exclusive() -> None:
+    result = _run_cli(CONTEXT_DIFF, "--context-budget", "8hunks", "--json")
+    assert result.returncode == 2
+    assert "not allowed with" in result.stderr
+
+
+def test_context_budget_and_sarif_are_mutually_exclusive() -> None:
+    result = _run_cli(CONTEXT_DIFF, "--context-budget", "8hunks", "--sarif")
+    assert result.returncode == 2
+    assert "not allowed with" in result.stderr
+
+
+def test_context_budget_rejects_a_bad_spec_cleanly() -> None:
+    result = _run_cli(CONTEXT_DIFF, "--context-budget", "bogus")
+    assert result.returncode == 2
+    assert "unrecognized context budget" in result.stderr
+
+
+def test_context_budget_with_fail_over_prints_bundle_but_exits_nonzero() -> None:
+    """The CI-gate exit code must not suppress the bundle on stdout."""
+    result = _run_cli(CONTEXT_DIFF, "--context-budget", "8hunks", "--fail-over", "1")
+    assert result.returncode == 1
+    # The bundle is still on stdout for piping to a reviewer.
+    assert "highest-risk hunks first" in result.stdout
+    # The trip reason goes to stderr (doesn't corrupt the bundle on stdout).
+    assert "fail-over tripped" in result.stderr
+
+
+def test_context_budget_empty_input_is_a_friendly_no_op() -> None:
+    result = _run_cli("", "--context-budget", "8hunks")
+    assert result.returncode == 0
+    assert "nothing to review" in result.stdout.lower()

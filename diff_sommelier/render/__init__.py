@@ -21,6 +21,10 @@ consumer can actually read:
   annotations in the PR "Files changed" view, the Security tab, and SARIF-aware
   IDEs. The risk tier drives the SARIF ``level`` (gulp→error, sip→warning,
   savor→note), so the annotations agree with the human menu.
+* :mod:`~diff_sommelier.render.bundle` — a token-bounded, paste-ready review
+  *bundle* for AI reviewers: the highest-risk hunks, most-dangerous-first,
+  packed into a prompt that fits a context window (the machine-side sibling of
+  the human ``--budget`` cut line). Builds the prompt only; no network/LLM call.
 
 All three share the **risk tier** vocabulary (:class:`Tier`): every hunk is a
 *savor* (skim-safe), a *sip* (read it), or a *gulp* (read this first). The tier
@@ -39,6 +43,7 @@ __all__ = [
     "render_json",
     "render_markdown",
     "render_sarif",
+    "render_bundle",
 ]
 
 
@@ -63,6 +68,18 @@ def render_sarif(
     from diff_sommelier.render.sarif import render_sarif as _impl
 
     return _impl(scored, title=title, fail_over=fail_over, indent=indent)
+
+
+def render_bundle(scored, *, budget, title: str | None = None) -> str:
+    """Render a token-bounded AI-reviewer bundle (see :mod:`.bundle`).
+
+    ``budget`` is a :class:`~diff_sommelier.render.bundle.ContextBudget` (parse
+    a ``--context-budget`` spec with
+    :func:`~diff_sommelier.render.bundle.parse_context_budget`).
+    """
+    from diff_sommelier.render.bundle import render_bundle as _impl
+
+    return _impl(scored, budget=budget, title=title)
 
 
 def render_human(scored, *, color: bool = True, width: int | None = None, budget=None) -> str:

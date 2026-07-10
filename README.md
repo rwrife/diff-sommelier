@@ -29,9 +29,11 @@ rest of the repo, so a *tiny* edit to a widely-used function gets flagged, and
 optional layers: **`--explain-llm`** sends only the top-N riskiest hunks
 to a model for extra, clearly-labelled notes (off by default; the core stays
 100% local), a **GitHub Action** posts a self-updating *review-order menu*
-comment on every PR (a `--markdown` renderer under the hood), and **`--sarif`**
+comment on every PR (a `--markdown` renderer under the hood), **`--sarif`**
 emits a SARIF 2.1.0 log so the ranked hunks surface as inline **code-scanning
-annotations** (tier drives the SARIF level).
+annotations** (tier drives the SARIF level), and **`--context-budget`** packs
+the highest-risk hunks into a token-bounded, paste-ready **review bundle for AI
+reviewers** (the machine-side sibling of the human `--budget` cut line).
 See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and v0.2+ backlog.
 
 ```bash
@@ -44,6 +46,7 @@ diff-sommelier --range main..HEAD      # -> what a PR added vs. main
 git diff | diff-sommelier --budget 5m  # -> menu with a "review above / skim below" cut
 git diff | diff-sommelier --json       # -> scored, explained hunks as JSON
 git diff | diff-sommelier --sarif      # -> SARIF 2.1.0 for code-scanning annotations
+git diff | diff-sommelier --context-budget 6000tok  # -> token-bounded bundle for an AI reviewer
 ```
 
 ### The tasting menu (default)
@@ -301,6 +304,40 @@ review-order comment):
 
 > Needs `permissions: security-events: write` on the job so the upload can
 > post code-scanning results.
+
+### Context budget for AI reviewers (`--context-budget`)
+
+The whole reason diff-sommelier exists: **AI reviewers fall apart on big
+diffs.** A 1,000-line dump overflows the context window, coherence collapses,
+and the model degrades into style nitpicks. diff-sommelier already knows *which*
+hunks matter most — **`--context-budget`** produces the fix: a token-bounded,
+paste-ready **review bundle** of only the highest-risk hunks, most-dangerous-
+first, so you hand your LLM reviewer the handful of hunks that can actually hurt
+you instead of the whole diff.
+
+It's the machine-side sibling of the human [`--budget`](#attention-budget--ci-gate)
+cut line: same *"spend attention where it counts"* idea, but the consumer is an
+AI reviewer with a **context limit** instead of a human with a **time limit**.
+The budget is either an approximate **token** cap (`6000tok`) or a **hunk**
+count (`8hunks`, or a bare integer). Token counting is a deliberately
+dependency-free `chars / 4` approximation — documented as approximate, a safety
+margin for the context window, not an exact tokenizer.
+
+```bash
+# Build the bundle and pipe it straight to your reviewer of choice:
+git diff origin/main... | diff-sommelier --context-budget 6000tok > review.md
+# or cap by hunk count, and name the PR so the preamble states the intent:
+git diff | diff-sommelier --context-budget 8hunks --title "Add SSO login"
+```
+
+The bundle is a Markdown prompt: a short preamble ("review these in order, here's
+why each was flagged"), then per included hunk its `file:line`, the one-line
+*why* (the rules that fired), and the raw hunk body — selection stops at the
+budget, most-risky-first, and a trailer reports how many lower-risk hunks were
+omitted. It's a JSON-free output mode (mutually exclusive with
+`--json`/`--markdown`/`--sarif`) and still honours `--fail-over` (exit code).
+**No network or LLM call is made** — it only *builds* the prompt; sending it
+stays your choice, consistent with diff-sommelier's "AI is opt-in" stance.
 
 ## Real repos & PRs
 
