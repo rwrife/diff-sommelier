@@ -36,6 +36,7 @@ from pathlib import Path
 from diff_sommelier import __version__
 from diff_sommelier import blast_radius as _blast_radius
 from diff_sommelier import hotspots as _hotspots
+from diff_sommelier import owners as _owners
 from diff_sommelier.budget import (
     BudgetError,
     BudgetResult,
@@ -212,6 +213,26 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--owners",
+        action="store_true",
+        help=(
+            "boost hunks in files owned by someone other than the PR author "
+            "(or with no CODEOWNERS entry at all) by reading the repo's "
+            "CODEOWNERS. Requires --author. No-ops without a CODEOWNERS file "
+            "or a resolvable author. Opt-in and fully local."
+        ),
+    )
+    parser.add_argument(
+        "--author",
+        metavar="LOGIN",
+        default=None,
+        help=(
+            "the PR author's CODEOWNERS handle (e.g. @octocat or a team like "
+            "@org/team), used by --owners to skip files the author already "
+            "owns. Compare case-insensitively."
+        ),
+    )
+    parser.add_argument(
         "--explain-llm",
         action="store_true",
         help=(
@@ -331,6 +352,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.hotspots:
         hotspot_index = _hotspots.build_index()
         rules = _hotspots.append_rule(rules, hotspot_index, weight=config.apply_weight)
+    if args.owners:
+        owners_index = _owners.build_index()
+        rules = _owners.append_rule(
+            rules, owners_index, args.author, weight=config.apply_weight
+        )
 
     scored = score_diff(diff, rules=rules)
 

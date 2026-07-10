@@ -25,7 +25,8 @@ ingestion, and a `.sommelier.toml` for custom rule weights and surface paths.
 An opt-in **`--blast-radius`** flag cross-references changed symbols against the
 rest of the repo, so a *tiny* edit to a widely-used function gets flagged, and
 **`--hotspots`** mines `git log` to boost hunks in historically bug-prone files
-(high churn, often fixed). Two v0.2+ backlog items have also landed as strictly
+(high churn, often fixed), and **`--owners`** reads `CODEOWNERS` to boost hunks
+in files owned by someone other than the PR author (or unowned entirely). Two v0.2+ backlog items have also landed as strictly
 optional layers: **`--explain-llm`** sends only the top-N riskiest hunks
 to a model for extra, clearly-labelled notes (off by default; the core stays
 100% local), a **GitHub Action** posts a self-updating *review-order menu*
@@ -168,6 +169,36 @@ is not just busy but *repeatedly broken* is the real danger. It's **opt-in** and
 fully **local/offline** (just `git log`), history is read once and cached, and
 outside a git repo (or with no history) it gracefully **no-ops**. Tune or mute
 it like any rule via `[weights]` (key: `hotspots`).
+
+### Ownership (`--owners`)
+
+A hunk is riskier when it touches code **you don't own** — and riskiest of all
+when a file has **no owner at all** (nobody's watching it). **`--owners`** reads
+your repo's `CODEOWNERS` and boosts hunks whose files are owned by *someone
+other than the PR author*, or that match no CODEOWNERS entry. It's the *social*
+risk axis, complementing the structural (`--blast-radius`) and historical
+(`--hotspots`) ones.
+
+```bash
+git diff | diff-sommelier --owners --author @your-handle
+diff-sommelier --staged --owners --author @octocat --json
+```
+
+```
+#  TIER  SCR  RISK                    WHY
+1  SIP    41  [########          ]  src/api/pay.py:1  owned by @team-payments,
+                                    not the author
+2  TASTE  32  [######            ]  infra/legacy.tf:1  no CODEOWNERS entry — unowned file
+```
+
+Pass **`--author`** with the PR author's CODEOWNERS handle (e.g. `@octocat`, or a
+team like `@org/team`); files the author already owns are skipped. CODEOWNERS is
+discovered from the three standard locations (`.github/CODEOWNERS`,
+`CODEOWNERS`, `docs/CODEOWNERS`, first found wins), with glob patterns and
+GitHub's **last-match-wins** precedence. Unowned files get a slightly higher
+bump than other-owned ones. It's **opt-in** and fully **local/offline** (just a
+file parse); with no CODEOWNERS file or no `--author` it gracefully **no-ops**.
+Tune or mute it like any rule via `[weights]` (key: `owners`).
 
 ### LLM enrichment (`--explain-llm`, opt-in)
 
