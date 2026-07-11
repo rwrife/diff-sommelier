@@ -26,17 +26,12 @@ def _run_cli(*args: str, cwd: Path | None = None, stdin: str | None = None):
 
 
 def _diff(path: str) -> str:
-    return (
-        f"diff --git a/{path} b/{path}\n"
-        f"--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-old\n+new\n"
-    )
+    return f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-old\n+new\n"
 
 
 def _codeowners(tmp_path: Path) -> None:
     (tmp_path / "CODEOWNERS").write_text(
-        "*        @global\n"
-        "*.py     @py-team\n"
-        "/secret/ @vault-team\n"
+        "*        @global\n*.py     @py-team\n/secret/ @vault-team\n"
     )
 
 
@@ -54,8 +49,12 @@ def _owner_reasons(stdout: str) -> list[str]:
 def test_other_owned_file_flagged(tmp_path: Path):
     _codeowners(tmp_path)
     res = _run_cli(
-        "--owners", "--author", "@py-team", "--json",
-        cwd=tmp_path, stdin=_diff("secret/keys.txt"),
+        "--owners",
+        "--author",
+        "@py-team",
+        "--json",
+        cwd=tmp_path,
+        stdin=_diff("secret/keys.txt"),
     )
     assert res.returncode == 0, res.stderr
     reasons = _owner_reasons(res.stdout)
@@ -65,8 +64,12 @@ def test_other_owned_file_flagged(tmp_path: Path):
 def test_author_owned_file_not_flagged(tmp_path: Path):
     _codeowners(tmp_path)
     res = _run_cli(
-        "--owners", "--author", "@py-team", "--json",
-        cwd=tmp_path, stdin=_diff("app/util.py"),
+        "--owners",
+        "--author",
+        "@py-team",
+        "--json",
+        cwd=tmp_path,
+        stdin=_diff("app/util.py"),
     )
     assert res.returncode == 0, res.stderr
     assert _owner_reasons(res.stdout) == []
@@ -81,8 +84,12 @@ def test_noop_without_author(tmp_path: Path):
 
 def test_noop_without_codeowners(tmp_path: Path):
     res = _run_cli(
-        "--owners", "--author", "@me", "--json",
-        cwd=tmp_path, stdin=_diff("secret/keys.txt"),
+        "--owners",
+        "--author",
+        "@me",
+        "--json",
+        cwd=tmp_path,
+        stdin=_diff("secret/keys.txt"),
     )
     assert res.returncode == 0, res.stderr
     assert _owner_reasons(res.stdout) == []
@@ -92,8 +99,12 @@ def test_weight_zero_silences_owners(tmp_path: Path):
     _codeowners(tmp_path)
     (tmp_path / ".sommelier.toml").write_text("[weights]\nowners = 0\n")
     res = _run_cli(
-        "--owners", "--author", "@py-team", "--json",
-        cwd=tmp_path, stdin=_diff("secret/keys.txt"),
+        "--owners",
+        "--author",
+        "@py-team",
+        "--json",
+        cwd=tmp_path,
+        stdin=_diff("secret/keys.txt"),
     )
     assert res.returncode == 0, res.stderr
     assert _owner_reasons(res.stdout) == []

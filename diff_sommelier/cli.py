@@ -354,9 +354,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         rules = _hotspots.append_rule(rules, hotspot_index, weight=config.apply_weight)
     if args.owners:
         owners_index = _owners.build_index()
-        rules = _owners.append_rule(
-            rules, owners_index, args.author, weight=config.apply_weight
-        )
+        rules = _owners.append_rule(rules, owners_index, args.author, weight=config.apply_weight)
 
     scored = score_diff(diff, rules=rules)
 
