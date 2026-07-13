@@ -47,6 +47,7 @@ from diff_sommelier.budget import (
 from diff_sommelier.config import Config, ConfigError, load_config
 from diff_sommelier.enrich import DEFAULT_TOP_N, EnrichmentError
 from diff_sommelier.parser import parse_diff
+from diff_sommelier.profiles import ProfileError, apply_profiles, resolve_profiles
 from diff_sommelier.render import render_human, render_json, render_markdown, render_sarif
 from diff_sommelier.render.bundle import ContextBudgetError, parse_context_budget
 from diff_sommelier.scorer import ScoredHunk, score_diff
@@ -273,6 +274,20 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="ignore any .sommelier.toml and use the built-in defaults",
     )
+    parser.add_argument(
+        "--as",
+        dest="profiles",
+        metavar="PROFILE",
+        action="append",
+        default=None,
+        help=(
+            "reweight the ranking for a reviewer profile, bending it toward your "
+            "blind spots. Built-ins: backend, frontend, security. Repeatable and "
+            "comma-separated (multipliers compose); custom profiles come from "
+            "[profiles.<name>] in .sommelier.toml. Reweighted hunks note it in "
+            "their reason (e.g. 'boosted +30% by profile: backend')."
+        ),
+    )
     return parser
 
 
@@ -308,6 +323,24 @@ def _load_cli_config(args: argparse.Namespace) -> Config:
     """Resolve the .sommelier.toml for this invocation (honouring the flags)."""
     explicit = Path(args.config_path) if args.config_path else None
     return load_config(explicit=explicit, enabled=not args.no_config)
+
+
+def _split_profiles(raw: Sequence[str] | None) -> list[str]:
+    """Flatten repeated/comma-listed ``--as`` values into an ordered name list.
+
+    ``--as backend --as frontend`` and ``--as backend,frontend`` are equivalent;
+    blank fragments are dropped. Order is preserved so composition (and the
+    profile label in reasons) is deterministic.
+    """
+    if not raw:
+        return []
+    names: list[str] = []
+    for chunk in raw:
+        for part in chunk.split(","):
+            part = part.strip()
+            if part:
+                names.append(part)
+    return names
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -357,6 +390,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         rules = _owners.append_rule(rules, owners_index, args.author, weight=config.apply_weight)
 
     scored = score_diff(diff, rules=rules)
+
+    # Reviewer profiles (issue #30): bend the ranking toward the reviewer's
+    # blind spots by reweighting surface categories. Runs right after scoring so
+    # every downstream consumer (budget, --fail-over, all renderers, enrichment)
+    # sees the reweighted, re-sorted order. A no-op when --as is absent.
+    profile_names = _split_profiles(args.profiles)
+    if profile_names:
+        try:
+            multipliers = resolve_profiles(profile_names, config.profiles)
+        except ProfileError as exc:
+            print(f"{PROG}: {exc}", file=sys.stderr)
+            return 2
+        scored = apply_profiles(scored, multipliers, label="+".join(profile_names))
 
     # Opt-in LLM enrichment (issue #7): after the heuristics have ranked the
     # hunks, augment only the top-N riskiest with model notes. Imported lazily so

@@ -200,6 +200,41 @@ bump than other-owned ones. It's **opt-in** and fully **local/offline** (just a
 file parse); with no CODEOWNERS file or no `--author` it gracefully **no-ops**.
 Tune or mute it like any rule via `[weights]` (key: `owners`).
 
+### Reviewer profiles (`--as`)
+
+A backend reviewer and a frontend reviewer should not read the same diff in the
+same order. **`--as <profile>`** bends the ranking toward *your* blind spots by
+reweighting surface categories: `backend` up-weights migrations, raw SQL, and
+auth while down-weighting CSS/markup churn; `frontend` inverts it (and floats up
+stylesheet/markup/component hunks that no other rule flags); `security` sharpens
+auth, crypto, secrets, and dependency changes.
+
+```bash
+git diff | diff-sommelier --as backend
+git diff | diff-sommelier --as frontend --json
+# Compose profiles (multipliers multiply); repeat the flag or comma-list:
+git diff | diff-sommelier --as backend --as security
+git diff | diff-sommelier --as backend,security
+```
+
+The reweighting is **transparent**: when a profile changes a hunk's ranking, the
+reason line says so, e.g. `touches a database migration/schema (boosted +40% by
+profile: backend)`. Same diff, personalized triage — nothing is hidden.
+
+**Built-in profiles:** `backend`, `frontend`, `security`.
+
+**Custom profiles** live in `.sommelier.toml` under `[profiles.<name>]`, mapping
+surface categories to multipliers (`1.0` = neutral, `>1` boosts, `<1` sinks, `0`
+mutes). A custom profile named like a built-in shadows it. Valid categories:
+`auth`, `crypto`, `migration`, `sql`, `ci`, `container`, `deps`, `lockfile`,
+`env`, `frontend`; an unknown category (or profile name) errors clearly.
+
+```toml
+[profiles.myteam]
+frontend  = 2.0   # we ship a lot of UI; make me read it first
+migration = 0.5   # a DBA reviews these separately
+```
+
 ### LLM enrichment (`--explain-llm`, opt-in)
 
 The heuristics are the source of truth: fast, free, offline, and every point on a
@@ -515,6 +550,18 @@ Known rule names for `[weights]` are `size`, `surface`, `danger`,
 `blast-radius`, and `hotspots` (the same names you see under `"rule"` in
 `--json`; `blast-radius` and `hotspots` only fire when you pass their opt-in
 flags).
+
+You can also define **reviewer profiles** under `[profiles.<name>]` (see
+[Reviewer profiles](#reviewer-profiles---as)), mapping surface categories
+(`auth`, `crypto`, `migration`, `sql`, `ci`, `container`, `deps`, `lockfile`,
+`env`, `frontend`) to multipliers, then select them at run time with
+`--as <name>`:
+
+```toml
+[profiles.myteam]
+frontend  = 2.0
+migration = 0.5
+```
 
 ## Tech
 
