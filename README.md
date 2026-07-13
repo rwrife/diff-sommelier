@@ -271,6 +271,12 @@ The v0.1 rule pack:
 - **danger** — deletions, dynamic `eval`/`exec`, shell/subprocess calls,
   hardcoded secrets & private keys, disabled TLS verification, loosened CORS,
   permission/privilege changes, and raw SQL.
+- **control** — control-flow edits where quiet bugs hide: comparison-operator
+  flips (`<` → `<=`) and loop/index-bound arithmetic (off-by-one bait),
+  added/removed `try`/`except` (bare or swallowed handlers score higher),
+  changed `raise`, added/removed early `return`/`continue`/`break`, and
+  `not` appearing or disappearing on a condition. Comment-only edits fire
+  nothing.
 
 Add a rule by dropping a `Hunk -> [Signal]` function into
 `diff_sommelier/rules/` and registering it — that's the extension surface for

@@ -63,9 +63,9 @@ def _load_rules() -> list[Rule]:
     the import graph acyclic: the rule submodules import :class:`Signal` from
     here, so we must finish defining it before importing them.
     """
-    from diff_sommelier.rules import danger, size, surface
+    from diff_sommelier.rules import control, danger, size, surface
 
-    return [size.score, surface.score, danger.score]
+    return [size.score, surface.score, danger.score, control.score]
 
 
 ALL_RULES: list[Rule] = _load_rules()
