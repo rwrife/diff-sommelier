@@ -36,6 +36,7 @@ from pathlib import Path
 from diff_sommelier import __version__
 from diff_sommelier import blast_radius as _blast_radius
 from diff_sommelier import hotspots as _hotspots
+from diff_sommelier import no_tests as _no_tests
 from diff_sommelier import owners as _owners
 from diff_sommelier.budget import (
     BudgetError,
@@ -224,6 +225,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--no-tests",
+        dest="no_tests",
+        action="store_true",
+        help=(
+            "flag risky source hunks that ship with no accompanying test "
+            "changes in the same diff. Only boosts non-test code hunks above a "
+            "risk threshold, and stays quiet when a plausibly-related test file "
+            "was touched. Opt-in and fully local (inspects only the diff)."
+        ),
+    )
+    parser.add_argument(
         "--author",
         metavar="LOGIN",
         default=None,
@@ -388,6 +400,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.owners:
         owners_index = _owners.build_index()
         rules = _owners.append_rule(rules, owners_index, args.author, weight=config.apply_weight)
+    if args.no_tests:
+        test_index = _no_tests.build_index(diff)
+        rules = _no_tests.append_rule(rules, test_index, weight=config.apply_weight)
 
     scored = score_diff(diff, rules=rules)
 

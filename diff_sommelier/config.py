@@ -52,6 +52,10 @@ _HOTSPOTS_RULE = "hotspots"
 # importing the module, keeping this file's import graph light.
 _OWNERS_RULE = "owners"
 
+# Rule name of the opt-in no-tests rule (--no-tests): weightable by name without
+# importing the module, keeping this file's import graph light.
+_NO_TESTS_RULE = "no-tests"
+
 __all__ = [
     "ConfigError",
     "Config",
@@ -73,6 +77,7 @@ _KNOWN_RULES = (
     _BLAST_RADIUS_RULE,
     _HOTSPOTS_RULE,
     _OWNERS_RULE,
+    _NO_TESTS_RULE,
 )
 
 
