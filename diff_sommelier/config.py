@@ -96,12 +96,13 @@ class Config:
 
     weights: dict[str, float] = field(default_factory=dict)
     extra_surface: tuple[ExtraSurface, ...] = ()
+    profiles: dict[str, dict[str, float]] = field(default_factory=dict)
     path: Path | None = None
 
     @property
     def is_default(self) -> bool:
         """True when nothing was customized (no file, or an empty file)."""
-        return not self.weights and not self.extra_surface
+        return not self.weights and not self.extra_surface and not self.profiles
 
     def rules(self) -> list[Rule]:
         """Build the rule list that applies this config.
@@ -211,7 +212,8 @@ def _parse(path: Path) -> Config:
 
     weights = _parse_weights(path, data.get("weights", {}))
     extra = _parse_surface(path, data.get("surface", []))
-    return Config(weights=weights, extra_surface=extra, path=path)
+    profiles = _parse_profiles(path, data.get("profiles", {}))
+    return Config(weights=weights, extra_surface=extra, profiles=profiles, path=path)
 
 
 def _parse_weights(path: Path, raw: object) -> dict[str, float]:
@@ -259,6 +261,45 @@ def _parse_surface(path: Path, raw: object) -> tuple[ExtraSurface, ...]:
             raise ConfigError(f"{where}: invalid regex {pattern!r}: {exc}") from exc
         out.append((compiled, points, reason))
     return tuple(out)
+
+
+def _parse_profiles(path: Path, raw: object) -> dict[str, dict[str, float]]:
+    """Validate the ``[profiles.<name>]`` tables: category -> multiplier maps.
+
+    Each key must be a known reviewer-profile category (see
+    :data:`diff_sommelier.profiles.CATEGORIES`); each value a non-negative
+    number. A profile named like a built-in shadows it at resolve time. An
+    unknown category name errors clearly, listing the valid set.
+    """
+    if raw in ((), [], None, {}):
+        return {}
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{path}: [profiles] must be a table of named profiles.")
+    # Imported here (not at module top) to keep the import graph light and avoid
+    # pulling the scorer/profile stack in for the common no-config path.
+    from diff_sommelier.profiles import CATEGORIES
+
+    out: dict[str, dict[str, float]] = {}
+    for name, table in raw.items():
+        where = f"{path}: profile '{name}'"
+        if not isinstance(table, dict):
+            raise ConfigError(f"{where} must be a table of category = multiplier.")
+        mults: dict[str, float] = {}
+        for category, value in table.items():
+            if category not in CATEGORIES:
+                known = ", ".join(CATEGORIES)
+                raise ConfigError(f"{where}: unknown category '{category}' (known: {known}).")
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ConfigError(
+                    f"{where}: multiplier for '{category}' must be a number, got {value!r}."
+                )
+            if value < 0:
+                raise ConfigError(
+                    f"{where}: multiplier for '{category}' must be >= 0, got {value}."
+                )
+            mults[category] = float(value)
+        out[name] = mults
+    return out
 
 
 # Re-exported so callers that want the unconfigured behaviour have a single name
