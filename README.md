@@ -26,7 +26,9 @@ An opt-in **`--blast-radius`** flag cross-references changed symbols against the
 rest of the repo, so a *tiny* edit to a widely-used function gets flagged, and
 **`--hotspots`** mines `git log` to boost hunks in historically bug-prone files
 (high churn, often fixed), and **`--owners`** reads `CODEOWNERS` to boost hunks
-in files owned by someone other than the PR author (or unowned entirely). Two v0.2+ backlog items have also landed as strictly
+in files owned by someone other than the PR author (or unowned entirely), and
+**`--no-tests`** flags risky source hunks that ship with no accompanying test
+change in the same diff. Two v0.2+ backlog items have also landed as strictly
 optional layers: **`--explain-llm`** sends only the top-N riskiest hunks
 to a model for extra, clearly-labelled notes (off by default; the core stays
 100% local), a **GitHub Action** posts a self-updating *review-order menu*
@@ -199,6 +201,30 @@ GitHub's **last-match-wins** precedence. Unowned files get a slightly higher
 bump than other-owned ones. It's **opt-in** and fully **local/offline** (just a
 file parse); with no CODEOWNERS file or no `--author` it gracefully **no-ops**.
 Tune or mute it like any rule via `[weights]` (key: `owners`).
+
+### Missing tests (`--no-tests`)
+
+A risky code change that ships with **zero** accompanying test changes deserves
+extra reviewer attention — and you can tell that from the diff alone, no
+coverage tooling required. **`--no-tests`** flags non-test source hunks above a
+risk threshold when the *same diff* touches no plausibly-related test file. This
+adds a **behavioral-safety** risk axis alongside the structural
+(`--blast-radius`), historical (`--hotspots`), and ownership (`--owners`) ones.
+
+```
+git diff | diff-sommelier --no-tests
+diff-sommelier --staged --no-tests --json
+```
+
+"Related" means a touched test file whose path references the changed module's
+stem, e.g. a change to `parser.py` is considered covered by touching
+`test_parser.py`, `parser_test.go`, or a `tests/…` file naming `parser`. Test
+files are detected across common conventions: `test_*.py`, `*_test.py`, a
+`tests/`/`test/`/`__tests__/` directory, `*.test.*`, and `*.spec.*`. If the diff
+moved *some* tests but none obviously for this module, the nag is softer. Only
+hunks that already clear a risk threshold are considered, so trivial diffs stay
+quiet. It's **opt-in** and fully **local/offline** (it inspects only the diff).
+Tune or mute it like any rule via `[weights]` (key: `no-tests`).
 
 ### Reviewer profiles (`--as`)
 
@@ -547,9 +573,9 @@ reason  = "touches infrastructure-as-code"
 ```
 
 Known rule names for `[weights]` are `size`, `surface`, `danger`,
-`blast-radius`, and `hotspots` (the same names you see under `"rule"` in
-`--json`; `blast-radius` and `hotspots` only fire when you pass their opt-in
-flags).
+`blast-radius`, `hotspots`, `owners`, and `no-tests` (the same names you see
+under `"rule"` in `--json`; `blast-radius`, `hotspots`, `owners`, and `no-tests`
+only fire when you pass their opt-in flags).
 
 You can also define **reviewer profiles** under `[profiles.<name>]` (see
 [Reviewer profiles](#reviewer-profiles---as)), mapping surface categories
