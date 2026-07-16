@@ -36,6 +36,7 @@ from pathlib import Path
 from diff_sommelier import __version__
 from diff_sommelier import blast_radius as _blast_radius
 from diff_sommelier import hotspots as _hotspots
+from diff_sommelier import intent as _intent
 from diff_sommelier import no_tests as _no_tests
 from diff_sommelier import owners as _owners
 from diff_sommelier.budget import (
@@ -246,6 +247,35 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--intent",
+        metavar="TEXT",
+        default=None,
+        help=(
+            "flag hunks that don't match the PR's stated story. Give the intent "
+            "as text (usually the PR title/description); hunks whose file and "
+            "changed identifiers barely overlap it are boosted as surprises "
+            "(e.g. a migration in a 'fix typo' PR). Fully local, no LLM."
+        ),
+    )
+    parser.add_argument(
+        "--intent-from-pr",
+        metavar="NUMBER",
+        dest="intent_from_pr",
+        default=None,
+        help=(
+            "like --intent, but auto-pull the intent text from `gh pr view "
+            "<NUMBER>` (title + body). No-ops if gh is unavailable. Combine with "
+            "--repo-slug for a non-default repo. Mutually exclusive with --intent."
+        ),
+    )
+    parser.add_argument(
+        "--repo-slug",
+        metavar="OWNER/REPO",
+        dest="repo_slug",
+        default=None,
+        help="repo (owner/repo) to pass to gh for --intent-from-pr",
+    )
+    parser.add_argument(
         "--explain-llm",
         action="store_true",
         help=(
@@ -400,6 +430,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.owners:
         owners_index = _owners.build_index()
         rules = _owners.append_rule(rules, owners_index, args.author, weight=config.apply_weight)
+    _intent_text = args.intent
+    if _intent_text is None and args.intent_from_pr is not None:
+        _intent_text = _intent.intent_from_pr(args.intent_from_pr, repo=args.repo_slug)
+    intent_obj = _intent.Intent.parse(_intent_text)
+    if intent_obj is not None:
+        rules = _intent.append_rule(rules, intent_obj, weight=config.apply_weight)
     if args.no_tests:
         test_index = _no_tests.build_index(diff)
         rules = _no_tests.append_rule(rules, test_index, weight=config.apply_weight)

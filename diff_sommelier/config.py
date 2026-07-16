@@ -56,6 +56,9 @@ _OWNERS_RULE = "owners"
 # importing the module, keeping this file's import graph light.
 _NO_TESTS_RULE = "no-tests"
 
+# Rule name of the opt-in intent rule (--intent): weightable by name.
+_INTENT_RULE = "intent"
+
 __all__ = [
     "ConfigError",
     "Config",
@@ -78,6 +81,7 @@ _KNOWN_RULES = (
     _HOTSPOTS_RULE,
     _OWNERS_RULE,
     _NO_TESTS_RULE,
+    _INTENT_RULE,
 )
 
 
