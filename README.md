@@ -226,6 +226,28 @@ hunks that already clear a risk threshold are considered, so trivial diffs stay
 quiet. It's **opt-in** and fully **local/offline** (it inspects only the diff).
 Tune or mute it like any rule via `[weights]` (key: `no-tests`).
 
+### Intent mismatch (`--intent`, `--intent-from-pr`)
+
+Reviewers trust the PR title and skim. The hunk that quietly contradicts the
+stated story — a database migration hiding in a *"fix typo in README"* PR — is
+exactly what slips through. **`--intent "..."`** diffs the *actual* changes
+against what the PR **claims** to be about and boosts hunks that don't match:
+
+```
+git diff | diff-sommelier --intent "fix typo in README"
+git diff | diff-sommelier --intent-from-pr 42 --repo-slug owner/repo
+```
+
+How it works: the intent text (PR title + body) is tokenized into keywords; each
+hunk contributes the tokens of its file path plus the identifiers on its changed
+lines. A hunk whose file/identifiers share **nothing** with the intent is a full
+surprise (bigger boost); one that barely overlaps is flagged as possible scope
+creep. On-topic hunks stay quiet. Pass the story directly with `--intent`, or
+auto-pull the title+body from `gh pr view <n>` with **`--intent-from-pr <n>`**
+(add `--repo-slug owner/repo` for a non-default repo; it no-ops if `gh` is
+unavailable). This adds an **intent-alignment** risk axis no other rule captures.
+Fully **local**, no LLM required. Tune or mute it via `[weights]` (key: `intent`).
+
 ### Reviewer profiles (`--as`)
 
 A backend reviewer and a frontend reviewer should not read the same diff in the
@@ -557,6 +579,7 @@ size    = 0.5    # we don't care much about big-but-boring hunks
 danger  = 1.5    # but really want eval/exec/secrets to float to the top
 # "blast-radius" = 0   # (opt-in rule) mute or amplify it too, e.g. 2.0
 # hotspots       = 2.0 # (opt-in rule) lean harder on bug-prone files
+# intent         = 1.5 # (opt-in rule) boost intent mismatches further
 
 # Mark extra paths as "dangerous by location", on top of the built-ins
 # (auth, crypto, migrations, CI, Dockerfiles, deps...). Each entry needs a
@@ -573,8 +596,8 @@ reason  = "touches infrastructure-as-code"
 ```
 
 Known rule names for `[weights]` are `size`, `surface`, `danger`,
-`blast-radius`, `hotspots`, `owners`, and `no-tests` (the same names you see
-under `"rule"` in `--json`; `blast-radius`, `hotspots`, `owners`, and `no-tests`
+`blast-radius`, `hotspots`, `owners`, `no-tests`, and `intent` (the same names you see
+under `"rule"` in `--json`; `blast-radius`, `hotspots`, `owners`, `no-tests`, and `intent`
 only fire when you pass their opt-in flags).
 
 You can also define **reviewer profiles** under `[profiles.<name>]` (see
