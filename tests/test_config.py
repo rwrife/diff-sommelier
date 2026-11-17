@@ -160,3 +160,25 @@ def test_surface_bad_regex_rejected(tmp_path: Path) -> None:
 def test_empty_config_is_default(tmp_path: Path) -> None:
     cfg = load_config(explicit=_write(tmp_path, "\n"))
     assert cfg.is_default
+
+
+def test_secrets_allowlist_is_customized(tmp_path: Path) -> None:
+    cfg = load_config(explicit=_write(tmp_path, "[secrets]\nallow = ['@example\\.invalid$']\n"))
+    assert not cfg.is_default
+    assert cfg.secrets_allow[0].search("person@example.invalid")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "secrets = []",
+        '[secrets]\nallow = "not-an-array"',
+        "[secrets]\nallow = [1]",
+        "[secrets]\nallow = ['(synthetic-invalid']",
+    ],
+)
+def test_invalid_secrets_allowlist_rejected_without_values(tmp_path: Path, body: str) -> None:
+    with pytest.raises(ConfigError) as exc:
+        load_config(explicit=_write(tmp_path, body))
+    assert "secrets" in str(exc.value)
+    assert "synthetic-invalid" not in str(exc.value)
