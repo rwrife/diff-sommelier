@@ -143,6 +143,43 @@ gracefully **no-ops**. Symbol extraction is a conservative, language-agnostic
 regex pass today (Python/JS/TS/Go and friends); tree-sitter precision is a later
 backlog item. Tune or mute it like any rule via `[weights]` (key: `blast-radius`).
 
+### Secret and PII radar (`--secrets`)
+
+```bash
+git diff | diff-sommelier --secrets --json
+diff-sommelier --staged --secrets --fail-over 90
+```
+
+Opt-in **`--secrets`** scans only added lines for AWS AKIA keys, GitHub `ghp_`
+tokens, Slack `xox` tokens, private-key PEM headers, JWTs, email addresses
+(basic PII), obvious API-key/password/secret assignments, and generic
+high-entropy quoted literals. Each detector adds 60 raw points at most once
+per hunk (a single hit scores at least 96 with default weights), putting
+potential leaks near the top. Reasons name the detector, **never the value**.
+Generic literals must be at least 20 characters, contain letters and digits,
+and have Shannon entropy of at least 4 bits/character; recognized shapes and
+explicit secret assignments do not require entropy.
+
+Allow known-safe fixtures with case-sensitive Python regexes matching the
+**detected value**, not the whole source line:
+
+```toml
+[secrets]
+allow = ['@example\.invalid$', '^synthetic-only$']
+```
+
+Or append `# sommelier: allow-secret` to suppress that added line. A regex
+suppresses only matching values, not other findings on the same line.
+With `--secrets`, these checks replace `danger`'s coarse secret checks, so
+allowlisted values stay suppressed; without the flag, existing scoring is
+unchanged. Tune the new rule via `[weights] secrets = 1.0`.
+See [the synthetic example](examples/secrets.diff).
+
+This is a local heuristic radar, not a guarantee of leak detection. Normal
+menu/JSON/SARIF reasons do not disclose values, but **review bundles include
+the raw diff** and `--explain-llm` sends selected hunks to the configured model;
+do not use either with sensitive diffs.
+
 ### Hotspots (`--hotspots`)
 
 Files that change constantly — and keep getting *fixed* — are where bugs breed.
@@ -596,8 +633,8 @@ reason  = "touches infrastructure-as-code"
 ```
 
 Known rule names for `[weights]` are `size`, `surface`, `danger`,
-`blast-radius`, `hotspots`, `owners`, `no-tests`, and `intent` (the same names you see
-under `"rule"` in `--json`; `blast-radius`, `hotspots`, `owners`, `no-tests`, and `intent`
+`blast-radius`, `hotspots`, `owners`, `no-tests`, `intent`, and `secrets` (the same names you see
+under `"rule"` in `--json`; `blast-radius`, `hotspots`, `owners`, `no-tests`, `intent`, and `secrets`
 only fire when you pass their opt-in flags).
 
 You can also define **reviewer profiles** under `[profiles.<name>]` (see

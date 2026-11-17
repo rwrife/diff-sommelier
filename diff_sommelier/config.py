@@ -1,7 +1,7 @@
 """Configuration file support (M6).
 
 A project can drop a ``.sommelier.toml`` at its root to tune scoring without
-forking the tool. Two things are configurable, matching the M6 scope:
+forking the tool. Configurable settings include:
 
 * ``[weights]`` — a per-rule multiplier applied to every point that rule emits.
   Keys are rule names (``size``, ``surface``, ``danger``); values are floats.
@@ -18,6 +18,9 @@ forking the tool. Two things are configurable, matching the M6 scope:
       points  = 12
       reason  = "touches the payments module"
 
+* ``[secrets] allow = ["regex", ...]`` — case-sensitive value regexes that
+  suppress known-safe findings when the opt-in ``--secrets`` radar is enabled.
+
 Discovery walks up from the working directory to the filesystem root (or a
 git/project boundary), so running ``diff-sommelier`` anywhere inside a repo
 finds the repo's config. ``--config PATH`` forces a specific file, and
@@ -31,11 +34,13 @@ import re
 import tomllib
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
 from diff_sommelier.parser import File, Hunk
 from diff_sommelier.rules import ALL_RULES, Rule, Signal
 from diff_sommelier.rules import danger as _danger
+from diff_sommelier.rules import secrets as _secrets
 from diff_sommelier.rules import size as _size
 from diff_sommelier.rules import surface as _surface
 
@@ -82,6 +87,7 @@ _KNOWN_RULES = (
     _OWNERS_RULE,
     _NO_TESTS_RULE,
     _INTENT_RULE,
+    _secrets.RULE,
 )
 
 
@@ -107,13 +113,19 @@ class Config:
     extra_surface: tuple[ExtraSurface, ...] = ()
     profiles: dict[str, dict[str, float]] = field(default_factory=dict)
     path: Path | None = None
+    secrets_allow: tuple[re.Pattern[str], ...] = ()
 
     @property
     def is_default(self) -> bool:
         """True when nothing was customized (no file, or an empty file)."""
-        return not self.weights and not self.extra_surface and not self.profiles
+        return (
+            not self.weights
+            and not self.extra_surface
+            and not self.profiles
+            and not self.secrets_allow
+        )
 
-    def rules(self) -> list[Rule]:
+    def rules(self, *, secrets: bool = False) -> list[Rule]:
         """Build the rule list that applies this config.
 
         The surface rule is swapped for one that also honours
@@ -121,13 +133,18 @@ class Config:
         are scaled by the configured weight (default ``1.0``). Weighting is
         applied as a post-filter on each rule's signals, so rule code never has
         to know about config and explanations are untouched.
+
+        ``secrets=True`` replaces danger's coarse credential checks with the
+        dedicated radar, including its allowlist.
         """
         surface_rule = _surface.make_rule(self.extra_surface)
         base: list[tuple[str, Rule]] = [
             (_size.RULE, _size.score),
             (_surface.RULE, surface_rule),
-            (_danger.RULE, _danger.score),
+            (_danger.RULE, partial(_danger.score, include_secrets=not secrets)),
         ]
+        if secrets:
+            base.append((_secrets.RULE, _secrets.make_rule(self.secrets_allow)))
         out: list[Rule] = []
         for name, rule in base:
             weight = self.weights.get(name, 1.0)
@@ -222,7 +239,30 @@ def _parse(path: Path) -> Config:
     weights = _parse_weights(path, data.get("weights", {}))
     extra = _parse_surface(path, data.get("surface", []))
     profiles = _parse_profiles(path, data.get("profiles", {}))
-    return Config(weights=weights, extra_surface=extra, profiles=profiles, path=path)
+    secrets_allow = _parse_secrets(path, data.get("secrets", {}))
+    return Config(
+        weights=weights,
+        extra_surface=extra,
+        profiles=profiles,
+        path=path,
+        secrets_allow=secrets_allow,
+    )
+
+
+def _parse_secrets(path: Path, raw: object) -> tuple[re.Pattern[str], ...]:
+    """Validate allowlist regexes without echoing potentially sensitive values."""
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{path}: [secrets] must be a table.")
+    allow = raw.get("allow", [])
+    if not isinstance(allow, list) or any(not isinstance(value, str) for value in allow):
+        raise ConfigError(f"{path}: secrets.allow must be an array of regex strings.")
+    out: list[re.Pattern[str]] = []
+    for i, pattern in enumerate(allow, 1):
+        try:
+            out.append(re.compile(pattern))
+        except re.error:
+            raise ConfigError(f"{path}: secrets.allow entry #{i}: invalid regex.") from None
+    return tuple(out)
 
 
 def _parse_weights(path: Path, raw: object) -> dict[str, float]:

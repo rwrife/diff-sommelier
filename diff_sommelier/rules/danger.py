@@ -57,20 +57,6 @@ _CONTENT_PATTERNS: tuple[tuple[re.Pattern[str], int, str], ...] = (
         "adds pickle deserialization",
     ),
     (
-        re.compile(
-            r"(api[_-]?key|secret|token|passwd|password|access[_-]?key)"
-            r"\s*[:=]\s*['\"][^'\"]{6,}['\"]",
-            re.I,
-        ),
-        18,
-        "adds a hardcoded secret-looking literal",
-    ),
-    (
-        re.compile(r"-----BEGIN (RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----"),
-        20,
-        "adds an embedded private key",
-    ),
-    (
         re.compile(r"\bchmod\s+(0?7[0-7][0-7]|[+-]?[ugoa]*\+?x)\b|\bchmod\s+777\b"),
         9,
         "changes file permissions",
@@ -102,6 +88,23 @@ _CONTENT_PATTERNS: tuple[tuple[re.Pattern[str], int, str], ...] = (
         ),
         9,
         "adds raw SQL",
+    ),
+)
+
+_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], int, str], ...] = (
+    (
+        re.compile(
+            r"(api[_-]?key|secret|token|passwd|password|access[_-]?key)"
+            r"\s*[:=]\s*['\"][^'\"]{6,}['\"]",
+            re.I,
+        ),
+        18,
+        "adds a hardcoded secret-looking literal",
+    ),
+    (
+        re.compile(r"-----BEGIN (RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----"),
+        20,
+        "adds an embedded private key",
     ),
 )
 
@@ -140,7 +143,7 @@ def _deletion_signal(hunk: Hunk, file: File) -> Signal | None:
     return None
 
 
-def score(hunk: Hunk, file: File) -> Iterator[Signal]:
+def score(hunk: Hunk, file: File, *, include_secrets: bool = True) -> Iterator[Signal]:
     """Yield danger signals from the hunk's removals and added content."""
     deletion = _deletion_signal(hunk, file)
     if deletion is not None:
@@ -150,7 +153,8 @@ def score(hunk: Hunk, file: File) -> Iterator[Signal]:
     if not added:
         return
     blob = "\n".join(added)
-    for pattern, points, reason in _CONTENT_PATTERNS:
+    patterns = _CONTENT_PATTERNS + _SECRET_PATTERNS if include_secrets else _CONTENT_PATTERNS
+    for pattern, points, reason in patterns:
         matches = pattern.findall(blob)
         count = len(matches)
         if count:

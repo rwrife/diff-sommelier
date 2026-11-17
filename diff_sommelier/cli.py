@@ -207,6 +207,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--secrets",
+        action="store_true",
+        help=(
+            "scan added lines for secrets and email/PII with high ranking weight. "
+            "Replaces the coarse danger secret checks and honours [secrets] allow "
+            "regexes and inline '# sommelier: allow-secret'. Opt-in and fully local."
+        ),
+    )
+    parser.add_argument(
         "--hotspots",
         action="store_true",
         help=(
@@ -420,7 +429,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     # blast-radius rule when --blast-radius is set and there is a tree to scan.
     # build_index returns None outside a repo / with nothing to scan, so this
     # cleanly no-ops rather than erroring.
-    rules = config.rules()
+    rules = config.rules(secrets=args.secrets)
     if args.blast_radius:
         index = _blast_radius.build_index()
         rules = _blast_radius.append_rule(rules, index, weight=config.apply_weight)
