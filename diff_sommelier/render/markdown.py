@@ -23,7 +23,11 @@ stays trivially testable and the CLI/Action own delivery.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from html import escape
 
+from diff_sommelier.budget import BudgetResult
+from diff_sommelier.render.links import source_link, validate_repo_url
+from diff_sommelier.render.text import _bar, _cut_label
 from diff_sommelier.render.tiers import GULP_AT, SIP_AT, Tier, tier_for
 from diff_sommelier.scorer import ScoredHunk
 
@@ -51,11 +55,12 @@ def _location(hunk) -> str:
 def _escape_cell(text: str) -> str:
     """Make ``text`` safe for a single GitHub Markdown table cell.
 
-    Pipes would end the cell early and newlines would break the row, so both
-    are neutralised. Backticks are left intact because we wrap code-ish bits in
-    them deliberately elsewhere.
+    Neutralise HTML and Markdown markup, table delimiters and line breaks.
     """
-    return text.replace("|", "\\|").replace("\r", " ").replace("\n", " ")
+    text = escape(text).replace("\r", " ").replace("\n", " ")
+    for char in "\\`*_[]":
+        text = text.replace(char, "\\" + char)
+    return text.replace("|", "\\|")
 
 
 def _reason_cell(signal) -> str:
@@ -87,7 +92,7 @@ def _summary(scored: Sequence[ScoredHunk]) -> str:
     return f"**{n_hunks} {hunk_word}** across **{n_files} {file_word}** · top risk **{top}**"
 
 
-def _table(rows: Sequence[ScoredHunk], *, start: int = 1) -> list[str]:
+def _table(rows: Sequence[ScoredHunk], *, start: int = 1, repo_url: str | None = None) -> list[str]:
     """Render a Markdown checklist table for ``rows`` (already ranked)."""
     lines = [
         "| | # | Tier | Score | Location | Why |",
@@ -96,8 +101,12 @@ def _table(rows: Sequence[ScoredHunk], *, start: int = 1) -> list[str]:
     for i, s in enumerate(rows, start=start):
         tier = tier_for(s.score)
         emoji = _TIER_EMOJI[tier]
-        loc = f"`{_escape_cell(_location(s.hunk))}`"
-        lines.append(f"| [ ] | {i} | {emoji} {tier.value.name} | {s.score} | {loc} | {_why(s)} |")
+        loc = f"<code>{_escape_cell(_location(s.hunk))}</code>"
+        if repo_url is not None:
+            url = source_link(repo_url, s.hunk.file_path, s.hunk.new_start)
+            loc = f"[{loc}]({url})"
+        score = f"{s.score} <code>{_bar(s.score)}</code>"
+        lines.append(f"| [ ] | {i} | {emoji} {tier.value.name} | {score} | {loc} | {_why(s)} |")
     return lines
 
 
@@ -106,6 +115,8 @@ def render_markdown(
     *,
     title: str | None = None,
     fail_over: int | None = None,
+    budget: BudgetResult | None = None,
+    repo_url: str | None = None,
 ) -> str:
     """Render the ranked tasting menu as a PR-comment Markdown string.
 
@@ -118,8 +129,13 @@ def render_markdown(
 
     The returned string always starts with :data:`COMMENT_MARKER` so the
     companion Action can update its comment in place rather than spam new ones.
+    With ``budget``, the cut replaces the default tier-based partition; hunks
+    below it collapse regardless of tier. ``repo_url`` links each location to
+    a source-view base that includes the revision.
     """
-    heading = title or "🍷 diff-sommelier — review-order menu"
+    if repo_url is not None:
+        validate_repo_url(repo_url)
+    heading = _escape_cell(title) if title else "🍷 diff-sommelier — review-order menu"
 
     lines: list[str] = [COMMENT_MARKER, f"## {heading}", ""]
 
@@ -135,13 +151,15 @@ def render_markdown(
     # already ranked, so a simple partition preserves reading order in each.
     review = [s for s in rows if tier_for(s.score) is not Tier.SAVOR]
     skim = [s for s in rows if tier_for(s.score) is Tier.SAVOR]
+    if budget is not None:
+        review, skim = rows[: budget.cut], rows[budget.cut :]
 
     if review:
         lines.append("### Read these first")
         lines.append("")
         lines.append("_In recommended reading order, most-risky-first._")
         lines.append("")
-        lines.extend(_table(review))
+        lines.extend(_table(review, repo_url=repo_url))
         lines.append("")
     else:
         lines.append("### Read these first")
@@ -149,13 +167,18 @@ def render_markdown(
         lines.append("_Nothing rises above skim level — the whole diff is low-risk._ 🎉")
         lines.append("")
 
+    if budget is not None:
+        lines.extend([f"> **{_cut_label(budget, 0).strip('─ ')}**", ""])
+
     if skim:
         lines.append("<details>")
         n = len(skim)
         hunk_word = "hunk" if n == 1 else "hunks"
-        lines.append(f"<summary>🟢 Skim-safe · {n} {hunk_word} (low risk)</summary>")
+        label = "Below budget cut" if budget is not None else "🟢 Skim-safe"
+        suffix = "" if budget is not None else " (low risk)"
+        lines.append(f"<summary>{label} · {n} {hunk_word}{suffix}</summary>")
         lines.append("")
-        lines.extend(_table(skim, start=len(review) + 1))
+        lines.extend(_table(skim, start=len(review) + 1, repo_url=repo_url))
         lines.append("")
         lines.append("</details>")
         lines.append("")

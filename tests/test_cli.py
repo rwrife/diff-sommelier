@@ -9,6 +9,8 @@ import json
 import subprocess
 import sys
 
+import pytest
+
 import diff_sommelier
 from diff_sommelier.cli import DiffCounts, count_diff
 
@@ -369,3 +371,61 @@ def test_context_budget_empty_input_is_a_friendly_no_op() -> None:
     result = _run_cli("", "--context-budget", "8hunks")
     assert result.returncode == 0
     assert "nothing to review" in result.stdout.lower()
+
+
+@pytest.mark.parametrize("fmt", ["text", "json", "md", "html"])
+def test_format_file_output_matches_stdout(tmp_path, fmt):
+    args = ["--format", fmt, "--no-color", "--repo-url", "https://example.com/blob/ref"]
+    expected = _run_cli(RISKY_DIFF, *args)
+    output = tmp_path / f"report.{fmt}"
+    result = _run_cli(RISKY_DIFF, *args, "-o", str(output))
+    assert result.returncode == expected.returncode == 0
+    assert result.stdout == ""
+    assert output.read_text(encoding="utf-8") == expected.stdout
+    assert "\x1b[" not in output.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("fmt", ["md", "html"])
+def test_report_budget_links_and_fail_over_persist_to_file(tmp_path, fmt):
+    output = tmp_path / f"report.{fmt}"
+    result = _run_cli(
+        CONTEXT_DIFF,
+        "--format",
+        fmt,
+        "--budget",
+        "1hunk",
+        "--repo-url",
+        "https://example.com/blob/ref",
+        "--fail-over",
+        "1",
+        "-o",
+        str(output),
+    )
+    assert result.returncode == 1
+    assert result.stdout == ""
+    report = output.read_text(encoding="utf-8")
+    assert "cut: review 1 above" in report
+    assert "https://example.com/blob/ref/auth/login.py#L1" in report
+    assert "CI gate" in report
+    assert "fail-over tripped" in result.stderr
+
+
+def test_file_output_failure_is_reported(tmp_path):
+    result = _run_cli(RISKY_DIFF, "--format", "html", "-o", str(tmp_path / "missing" / "x"))
+    assert result.returncode == 2
+    assert "cannot write" in result.stderr
+    assert not result.stdout
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("--format", "html", "--json"),
+        ("--format", "md", "--budget", "bogus"),
+        ("--format", "html", "--repo-url", "javascript:alert(1)"),
+    ],
+)
+def test_report_invalid_arguments(args):
+    result = _run_cli(RISKY_DIFF, *args)
+    assert result.returncode == 2
+    assert not result.stdout
