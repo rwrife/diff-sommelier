@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Example review</title>
+<style>
+body { font: 16px system-ui, sans-serif; max-width: 70rem; margin: 2rem auto;
+  padding: 0 1rem; color: #24292f; background: #fff; }
+article { border: 1px solid #d0d7de; border-left: .4rem solid #57606a;
+  border-radius: .4rem; margin: 1rem 0; padding: 1rem; overflow-wrap: anywhere; }
+article.gulp { border-left-color: #cf222e; }
+article.sip { border-left-color: #9a6700; }
+article.savor { border-left-color: #1a7f37; }
+h2 { font-size: 1.1rem; margin-top: 0; }
+a { color: #0969da; }
+.bar { display: inline-block; width: 10rem; height: .7rem; background: #eaeef2; }
+.bar span { display: block; height: 100%; background: #57606a; }
+.cut { border-top: 2px dashed #57606a; padding-top: 1rem; font-weight: bold; }
+.skim { background: #f6f8fa; }
+footer { margin-top: 2rem; color: #57606a; }
+</style>
+</head>
+<body>
+<main>
+<h1>Example review</h1>
+<p>diff-sommelier — 3 hunks across 3 files · top risk 87</p>
+<article class="gulp">
+<h2>#1 - gulp - <a href="https://github.com/example/project/blob/abc123/auth/login.py#L1"><code>auth/login.py:1</code></a></h2>
+<p>Risk 87/100 <span class="bar" aria-hidden="true"><span style="width: 87%"></span></span></p>
+<p>adds dynamic eval/exec (+16); touches authentication/session code (+14); changes a conditional (+4); adds/removes an early return/continue/break (x2) (+4)</p>
+</article>
+<p class="cut">cut: review 1 above · skim 2 below · budget 1 of 3 hunks</p>
+<article class="sip skim">
+<h2>#2 - sip - <a href="https://github.com/example/project/blob/abc123/.github/workflows/ci.yml#L1"><code>.github/workflows/ci.yml:1</code></a></h2>
+<p>Risk 41/100 <span class="bar" aria-hidden="true"><span style="width: 41%"></span></span></p>
+<p>touches CI workflow (+10)</p>
+</article>
+<article class="savor skim">
+<h2>#3 - savor - <a href="https://github.com/example/project/blob/abc123/README.md#L1"><code>README.md:1</code></a></h2>
+<p>Risk 0/100 <span class="bar" aria-hidden="true"><span style="width: 0%"></span></span></p>
+<p>(no notable signals — skim-safe)</p>
+</article>
+</main>
+<footer>Tiers: gulp (read first, &gt;=60); sip (read, &gt;=25); savor (skim-safe, &lt;25). Ranked most-risky-first.</footer>
+</body>
+</html>

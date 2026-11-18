@@ -15,7 +15,10 @@ consumer can actually read:
   if ``rich`` can't be imported.
 * :mod:`~diff_sommelier.render.markdown` — a GitHub-flavoured Markdown "menu"
   sized for a PR comment (used by the GitHub Action): a reading-order checklist
-  with the skim-safe hunks tucked into a collapsed ``<details>`` block.
+  with skim-safe (or below-budget) hunks tucked into a collapsed ``<details>``
+  block, score bars and optional source links.
+* :mod:`~diff_sommelier.render.html` — a portable, self-contained HTML menu
+  with score bars, an optional budget cut and source links.
 * :mod:`~diff_sommelier.render.sarif` — a SARIF 2.1.0 log so the ranked hunks
   can be uploaded via ``upload-sarif`` and appear as inline code-scanning
   annotations in the PR "Files changed" view, the Security tab, and SARIF-aware
@@ -34,6 +37,7 @@ later summary all agree.
 
 from __future__ import annotations
 
+from diff_sommelier.budget import BudgetResult
 from diff_sommelier.render.tiers import Tier, tier_for
 
 __all__ = [
@@ -42,6 +46,7 @@ __all__ = [
     "render_human",
     "render_json",
     "render_markdown",
+    "render_html",
     "render_sarif",
     "render_bundle",
 ]
@@ -54,11 +59,32 @@ def render_json(scored, *, indent: int | None = 2) -> str:
     return _impl(scored, indent=indent)
 
 
-def render_markdown(scored, *, title: str | None = None, fail_over: int | None = None) -> str:
+def render_markdown(
+    scored,
+    *,
+    title: str | None = None,
+    fail_over: int | None = None,
+    budget: BudgetResult | None = None,
+    repo_url: str | None = None,
+) -> str:
     """Render the PR-comment Markdown menu (see :mod:`.markdown`)."""
     from diff_sommelier.render.markdown import render_markdown as _impl
 
-    return _impl(scored, title=title, fail_over=fail_over)
+    return _impl(scored, title=title, fail_over=fail_over, budget=budget, repo_url=repo_url)
+
+
+def render_html(
+    scored,
+    *,
+    title: str | None = None,
+    fail_over: int | None = None,
+    budget: BudgetResult | None = None,
+    repo_url: str | None = None,
+) -> str:
+    """Render a self-contained HTML report (see :mod:`.html`)."""
+    from diff_sommelier.render.html import render_html as _impl
+
+    return _impl(scored, title=title, fail_over=fail_over, budget=budget, repo_url=repo_url)
 
 
 def render_sarif(

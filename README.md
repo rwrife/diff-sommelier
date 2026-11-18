@@ -76,6 +76,41 @@ with `--no-color`.
 Tiers: GULP (read first, ≥60) · SIP (read, ≥25) · SAVR (skim-safe, <25).
 ```
 
+### Shareable HTML and Markdown reports
+
+Save a ranked menu for async review, a wiki, or a CI artifact:
+
+```bash
+git diff | diff-sommelier --format html --budget 5m -o report.html
+git diff | diff-sommelier --format md --budget 2hunks \
+  --repo-url https://github.com/OWNER/REPO/blob/COMMIT -o report.md
+```
+
+`--format text|json|md|html` selects the presenter; existing `--json`,
+`--markdown`, `--sarif`, and `--context-budget` flags still work and are
+mutually exclusive with `--format`. `-o` / `--output` writes UTF-8 (overwriting
+an existing file), disables terminal colours, and leaves stdout empty.
+`--fail-over` still saves the report before returning the gate's exit code.
+
+HTML is a standalone page with inline CSS and no external assets or scripts.
+Both report formats show ranked locations, score bars, reasons and the
+`--budget` cut, including when every hunk fits. Markdown collapses hunks below
+that cut in `<details>`; without a budget it preserves the PR-comment behavior
+of collapsing the low-risk tier. A below-cut hunk is not necessarily low risk.
+Reports summarize hunks rather than copying their raw diff bodies.
+
+`--repo-url` is an HTTP(S) **source-view base including the revision**, such as
+`https://github.com/OWNER/REPO/blob/COMMIT`, not just the repository home URL.
+Reports append the URL-encoded file path and `#Lline`; use a commit SHA for
+stable links. Deleted hunks retain the existing menu's new-side location
+(a zero start links to line 1); a deleted file may no longer exist at that revision.
+
+See the checked-in [Markdown sample](examples/review-menu.md) and
+[standalone HTML sample](examples/review-menu.html), generated from
+[`report.patch`](tests/fixtures/report.patch) with `--budget 1hunk`,
+`--title "Example review"` and
+`--repo-url https://github.com/example/project/blob/abc123`.
+
 ### Attention budget + CI gate
 
 **`--budget`** draws a cut line in the menu: review the hunks above it, skim the

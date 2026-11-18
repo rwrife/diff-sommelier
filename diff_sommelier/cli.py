@@ -50,8 +50,15 @@ from diff_sommelier.config import Config, ConfigError, load_config
 from diff_sommelier.enrich import DEFAULT_TOP_N, EnrichmentError
 from diff_sommelier.parser import parse_diff
 from diff_sommelier.profiles import ProfileError, apply_profiles, resolve_profiles
-from diff_sommelier.render import render_human, render_json, render_markdown, render_sarif
+from diff_sommelier.render import (
+    render_html,
+    render_human,
+    render_json,
+    render_markdown,
+    render_sarif,
+)
 from diff_sommelier.render.bundle import ContextBudgetError, parse_context_budget
+from diff_sommelier.render.links import validate_repo_url
 from diff_sommelier.scorer import ScoredHunk, score_diff
 from diff_sommelier.source import SourceError, read_git
 
@@ -117,6 +124,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     output = parser.add_mutually_exclusive_group()
     output.add_argument(
+        "--format",
+        choices=("text", "json", "md", "html"),
+        help="output format (default: text); md/html are portable review-menu reports",
+    )
+    output.add_argument(
         "--json",
         action="store_true",
         help=(
@@ -163,11 +175,24 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        metavar="PATH",
+        help="write UTF-8 output to PATH instead of stdout (overwrites an existing file)",
+    )
+    parser.add_argument(
+        "--repo-url",
+        type=validate_repo_url,
+        metavar="URL",
+        help="HTTP(S) source-view base including revision, e.g. https://github.com/org/repo/blob/SHA",
+    )
+    parser.add_argument(
         "--title",
         metavar="TEXT",
         default=None,
         help=(
-            "override the heading of the --markdown menu (e.g. the PR title); "
+            "override the Markdown/HTML report heading (e.g. the PR title); "
             "also recorded in the --sarif log's run properties"
         ),
     )
@@ -480,14 +505,26 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # Colour only when asked for (default) AND stdout is a real terminal, so
     # piping the menu into a file or pager yields clean plain text.
-    color = not args.no_color and sys.stdout.isatty()
+    color = not args.no_color and args.output is None and sys.stdout.isatty()
 
-    if args.json:
-        print(render_json(scored))
-    elif args.markdown:
-        print(render_markdown(scored, title=args.title, fail_over=args.fail_over))
+    if args.json or args.format == "json":
+        rendered = render_json(scored)
+    elif args.markdown or args.format in {"md", "html"}:
+        try:
+            budget = _resolve_budget(scored, args.budget)
+        except BudgetError as exc:
+            print(f"{PROG}: {exc}", file=sys.stderr)
+            return 2
+        renderer = render_html if args.format == "html" else render_markdown
+        rendered = renderer(
+            scored,
+            title=args.title,
+            fail_over=args.fail_over,
+            budget=budget,
+            repo_url=args.repo_url,
+        )
     elif args.sarif:
-        print(render_sarif(scored, title=args.title, fail_over=args.fail_over))
+        rendered = render_sarif(scored, title=args.title, fail_over=args.fail_over)
     elif args.context_budget is not None:
         try:
             ctx_budget = parse_context_budget(args.context_budget)
@@ -496,14 +533,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         from diff_sommelier.render import render_bundle
 
-        print(render_bundle(scored, budget=ctx_budget, title=args.title))
+        rendered = render_bundle(scored, budget=ctx_budget, title=args.title)
     else:
         try:
             budget = _resolve_budget(scored, args.budget)
         except BudgetError as exc:
             print(f"{PROG}: {exc}", file=sys.stderr)
             return 2
-        print(render_human(scored, color=color, budget=budget))
+        rendered = render_human(scored, color=color, budget=budget)
+
+    if args.output is not None:
+        try:
+            args.output.write_text(rendered + "\n", encoding="utf-8")
+        except OSError as exc:
+            print(f"{PROG}: cannot write {args.output}: {exc}", file=sys.stderr)
+            return 2
+    else:
+        print(rendered)
 
     # CI gate: a non-None worst score means a hunk met/exceeded the threshold.
     if args.fail_over is not None:
