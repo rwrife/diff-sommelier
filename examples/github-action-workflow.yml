@@ -26,7 +26,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: rwrife/diff-sommelier@v0.1.0
+      - uses: rwrife/diff-sommelier@main
         with:
           # Optional: fail the check when any hunk scores >= 80.
           fail-over: "80"

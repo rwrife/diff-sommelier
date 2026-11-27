@@ -585,12 +585,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: rwrife/diff-sommelier@v0.1.0
+      - uses: rwrife/diff-sommelier@main
         with:
           fail-over: "80"     # optional: fail the check when a hunk scores >= 80
           blast-radius: "true"
           hotspots: "true"
 ```
+
+For reproducible workflows, replace `main` with a verified commit SHA.
 
 The comment looks like a menu you can tick through:
 
