@@ -31,6 +31,17 @@ def test_version_flag_via_module() -> None:
     assert diff_sommelier.__version__ in result.stdout
 
 
+def test_help_flag_displays_profile_percentage() -> None:
+    result = subprocess.run(
+        [sys.executable, "-X", "utf8", "-m", "diff_sommelier", "--help"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0
+    assert "boosted +30% by profile: backend" in " ".join(result.stdout.split())
+
+
 # Built from parts so the whitespace-only context line (a single space) is
 # explicit and doesn't show up as trailing whitespace in this source file.
 _BLANK_CONTEXT = " "

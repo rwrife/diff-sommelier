@@ -361,7 +361,7 @@ def build_parser() -> argparse.ArgumentParser:
             "blind spots. Built-ins: backend, frontend, security. Repeatable and "
             "comma-separated (multipliers compose); custom profiles come from "
             "[profiles.<name>] in .sommelier.toml. Reweighted hunks note it in "
-            "their reason (e.g. 'boosted +30% by profile: backend')."
+            "their reason (e.g. 'boosted +30%% by profile: backend')."
         ),
     )
     return parser
